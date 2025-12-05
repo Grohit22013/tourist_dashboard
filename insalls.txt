@@ -1,0 +1,6 @@
+tailwind installation 
+
+npm install -D tailwindcss@3
+npx tailwindcss init 
+
+this will create a tailwind.config.js
