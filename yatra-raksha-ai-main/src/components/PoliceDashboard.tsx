@@ -6,6 +6,7 @@ import { FIRGeneration } from '@/components/police/FIRGeneration';
 import { SOSTracking } from '@/components/police/SOSTracking';
 import { PoliceAnalytics } from '@/components/police/PoliceAnalytics';
 import { DashboardHeader } from '@/components/DashboardHeader';
+import { useWebSocket } from "@/context/WebSocketContext";
 
 interface PoliceDashboardProps {
   onLogout: () => void;
@@ -14,6 +15,9 @@ interface PoliceDashboardProps {
 
 const PoliceDashboard = ({ onLogout, username }: PoliceDashboardProps) => {
   const [activeTab, setActiveTab] = useState('monitoring');
+  
+
+
 
   const renderContent = () => {
     switch (activeTab) {
@@ -42,6 +46,7 @@ const PoliceDashboard = ({ onLogout, username }: PoliceDashboardProps) => {
             username={username}
             onLogout={onLogout}
           />
+         
           <div className="flex-1 p-6">
             {renderContent()}
           </div>

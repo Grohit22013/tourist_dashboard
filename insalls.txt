@@ -4,3 +4,24 @@ npm install -D tailwindcss@3
 npx tailwindcss init 
 
 this will create a tailwind.config.js
+
+
+-------------------------------------
+
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyCuWtH9D5tpWRgrjG05lJrYvoAUMbm-xi8",
+  authDomain: "yatraraksha.firebaseapp.com",
+  projectId: "yatraraksha",
+  storageBucket: "yatraraksha.firebasestorage.app",
+  messagingSenderId: "104822038490",
+  appId: "1:104822038490:web:4d908b0fd6056d20c7aae3"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);

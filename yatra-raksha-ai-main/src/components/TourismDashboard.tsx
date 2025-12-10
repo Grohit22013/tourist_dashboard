@@ -9,12 +9,14 @@ import { Analytics } from '@/components/tourism/Analytics';
 import { BlockchainVerify } from '@/components/tourism/BlockchainVerify';
 import { DashboardHeader } from '@/components/DashboardHeader';
 
+
 interface TourismDashboardProps {
   onLogout: () => void;
   username: string;
 }
 
 const TourismDashboard = ({ onLogout, username }: TourismDashboardProps) => {
+   
   const [activeTab, setActiveTab] = useState('monitoring');
 
   const renderContent = () => {
@@ -35,10 +37,11 @@ const TourismDashboard = ({ onLogout, username }: TourismDashboardProps) => {
         return <LiveMonitoring />;
     }
   };
-
+ 
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background">
+     
         <TourismSidebar activeTab={activeTab} onTabChange={setActiveTab} />
         <main className="flex-1 flex flex-col">
           <DashboardHeader 
@@ -48,6 +51,9 @@ const TourismDashboard = ({ onLogout, username }: TourismDashboardProps) => {
             username={username}
             onLogout={onLogout}
           />
+             <div>
+      
+    </div>
           <div className="flex-1 p-6">
             {renderContent()}
           </div>

@@ -12,7 +12,7 @@ interface LoginProps {
 
 const Login = ({ onLogin }: LoginProps) => {
   const [credentials, setCredentials] = useState({ username: '', password: '' });
-  const [activeTab, setActiveTab] = useState('tourism');
+  const [activeTab, setActiveTab] = useState('police');
 
   const handleSubmit = (e: React.FormEvent, userType: 'tourism' | 'police') => {
     e.preventDefault();
@@ -40,10 +40,10 @@ const Login = ({ onLogin }: LoginProps) => {
           <CardContent>
             <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList className="grid w-full grid-cols-2 mb-6">
-                <TabsTrigger value="tourism" className="flex items-center gap-2">
+                {/* <TabsTrigger value="tourism" className="flex items-center gap-2">
                   <Users className="h-4 w-4" />
                   Tourism Board
-                </TabsTrigger>
+                </TabsTrigger> */}
                 <TabsTrigger value="police" className="flex items-center gap-2">
                   <AlertTriangle className="h-4 w-4" />
                   Police Force
