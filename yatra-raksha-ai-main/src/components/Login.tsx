@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Shield, MapPin, Users, AlertTriangle } from 'lucide-react';
+import { Shield, MapPin, AlertTriangle } from 'lucide-react';
 
 interface LoginProps {
   onLogin: (userType: 'tourism' | 'police', credentials: { username: string; password: string }) => void;
@@ -22,6 +22,7 @@ const Login = ({ onLogin }: LoginProps) => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/10 via-background to-safe/5 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
+
         {/* Header */}
         <div className="text-center mb-8">
           <div className="flex justify-center items-center gap-3 mb-4">
@@ -37,48 +38,17 @@ const Login = ({ onLogin }: LoginProps) => {
           <CardHeader className="text-center">
             <CardTitle className="text-2xl">Secure Access Portal</CardTitle>
           </CardHeader>
+
           <CardContent>
             <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className="grid w-full grid-cols-2 mb-6">
-                {/* <TabsTrigger value="tourism" className="flex items-center gap-2">
-                  <Users className="h-4 w-4" />
-                  Tourism Board
-                </TabsTrigger> */}
+              
+              {/* --- CENTERED TAB LIST --- */}
+              <TabsList className="flex w-full justify-center mb-6">
                 <TabsTrigger value="police" className="flex items-center gap-2">
                   <AlertTriangle className="h-4 w-4" />
                   Police Force
                 </TabsTrigger>
               </TabsList>
-
-              <TabsContent value="tourism">
-                <form onSubmit={(e) => handleSubmit(e, 'tourism')} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="tourism-username">Username / Badge ID</Label>
-                    <Input
-                      id="tourism-username"
-                      type="text"
-                      placeholder="Enter your tourism board ID"
-                      value={credentials.username}
-                      onChange={(e) => setCredentials({ ...credentials, username: e.target.value })}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="tourism-password">Password</Label>
-                    <Input
-                      id="tourism-password"
-                      type="password"
-                      placeholder="Enter your password"
-                      value={credentials.password}
-                      onChange={(e) => setCredentials({ ...credentials, password: e.target.value })}
-                      required
-                    />
-                  </div>
-                  <Button type="submit" className="w-full bg-primary hover:bg-primary-hover">
-                    Access Tourism Dashboard
-                  </Button>
-                </form>
-              </TabsContent>
 
               <TabsContent value="police">
                 <form onSubmit={(e) => handleSubmit(e, 'police')} className="space-y-4">
@@ -93,6 +63,7 @@ const Login = ({ onLogin }: LoginProps) => {
                       required
                     />
                   </div>
+
                   <div className="space-y-2">
                     <Label htmlFor="police-password">Secure Password</Label>
                     <Input
@@ -104,11 +75,13 @@ const Login = ({ onLogin }: LoginProps) => {
                       required
                     />
                   </div>
+
                   <Button type="submit" className="w-full bg-critical hover:bg-critical/90">
                     Access Garuda Dashboard
                   </Button>
                 </form>
               </TabsContent>
+
             </Tabs>
 
             <div className="mt-6 text-center text-sm text-muted-foreground">
@@ -128,6 +101,7 @@ const Login = ({ onLogin }: LoginProps) => {
             <p className="text-xs font-medium">Blockchain Security</p>
           </div>
         </div>
+
       </div>
     </div>
   );
