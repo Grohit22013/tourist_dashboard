@@ -20,7 +20,6 @@ import 'dart:math' as math;
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:pedometer/pedometer.dart';
 import 'package:light/light.dart';
-import 'package:proximity_sensor/proximity_sensor.dart';
 
 class SensorService {
   // ---------------- Accelerometer ----------------
@@ -56,9 +55,6 @@ class SensorService {
   // ---------------- Orientation ----------------
 
   // ---------------- Proximity ----------------
-  static Stream<int> proximityStream() {
-    return ProximitySensor.events; // FIXED
-  }
 
   // ---------------- Pickup Sensor ----------------
   static Stream<bool> pickupStream() {

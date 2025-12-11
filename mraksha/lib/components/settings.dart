@@ -224,9 +224,9 @@ class DeviceStatusService {
     });
 
     // Proximity
-    proxSub = SensorService.proximityStream().listen((value) {
-      proximity = value; // 0 = far, 1 = near
-    });
+    // proxSub = SensorService.proximityStream().listen((value) {
+    //   proximity = value; // 0 = far, 1 = near
+    // });
   }
 
   void dispose() {

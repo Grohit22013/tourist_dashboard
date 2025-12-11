@@ -124,6 +124,14 @@ class _BluetoothHomePageState extends State<BluetoothHomePage> {
 
   Future<void> _handleJsonFromDevice(Map<String, dynamic> jsonMap) async {
     final cmd = jsonMap["cmd"];
+    if (cmd == "MSG") {
+      String trans = await translateToGlobalLanguage(jsonMap["message"]);
+      setState(() => globalInstruction = trans);
+
+      print("\ninstruction\n");
+      print(globalInstruction);
+    }
+
     if (cmd == "SOS") {
       _sendCommand(jsonMap);
     } else if (cmd == "CHECK_SIGNAL") {

@@ -470,43 +470,95 @@ export const PoliceMonitoring: React.FC = () => {
     setRecordingFor((cur) => (cur === alertId ? null : cur));
   };
 
-  const sendTranscriptToAlert = (alertId: string) => {
-    const text = (transcripts[alertId] || "").trim();
-    const audio = audioBlobs[alertId] ?? null;
+  // const sendTranscriptToAlert = (alertId: string) => {
+  //   const text = (transcripts[alertId] || "").trim();
+  //   const audio = audioBlobs[alertId] ?? null;
 
-    if (!text && !audio) {
-      alert("No recorded audio or transcript to send for this alert.");
-      return;
-    }
+  //   if (!text && !audio) {
+  //     alert("No recorded audio or transcript to send for this alert.");
+  //     return;
+  //   }
 
-    setActiveAlerts((prev) =>
-      prev.map((a) =>
-        a.id === alertId
-          ? {
-              ...a,
-              sentMessages: [
-                ...(a.sentMessages ?? []),
-                {
-                  id: genRandom(),
-                  text: text || null,
-                  audioPresent: !!audio,
-                  timestamp: new Date().toISOString(),
-                },
-              ],
-            }
-          : a
-      )
-    );
+  //   setActiveAlerts((prev) =>
+  //     prev.map((a) =>
+  //       a.id === alertId
+  //         ? {
+  //             ...a,
+  //             sentMessages: [
+  //               ...(a.sentMessages ?? []),
+  //               {
+  //                 id: genRandom(),
+  //                 text: text || null,
+  //                 audioPresent: !!audio,
+  //                 timestamp: new Date().toISOString(),
+  //               },
+  //             ],
+  //           }
+  //         : a
+  //     )
+  //   );
 
-    // Optionally upload audio blob to server here. Placeholder:
-    // if (audio) { uploadAudio(alertId, audio); }
+  //   // Optionally upload audio blob to server here. Placeholder:
+  //   // if (audio) { uploadAudio(alertId, audio); }
 
-    // clear local buffers (optional)
-    setTranscripts((t) => ({ ...t, [alertId]: "" }));
-    setAudioBlobs((a) => ({ ...a, [alertId]: null }));
+  //   // clear local buffers (optional)
+  //   setTranscripts((t) => ({ ...t, [alertId]: "" }));
+  //   setAudioBlobs((a) => ({ ...a, [alertId]: null }));
+  //   // Invoke-RestMethod -Uri "http://172.20.10.8:8000/receive-ins" -Method POST -Headers @{"Content-Type"="application/json"} -Body '{"device_id":"NODE_01","message":"Rangers are on the way!"}'
 
-    alert("Transcript/audio attached to the alert (local). Replace with server call as needed.");
-  };
+  //   alert("Transcript/audio attached to the alert (local). Replace with server call as needed.");
+  // };
+const sendTranscriptToAlert = (alertId: string) => {
+  const text = (transcripts[alertId] || "").trim();
+  const audio = audioBlobs[alertId] ?? null;
+
+  if (!text && !audio) {
+    alert("No recorded audio or transcript to send for this alert.");
+    return;
+  }
+
+  // Update local UI state
+  setActiveAlerts((prev) =>
+    prev.map((a) =>
+      a.id === alertId
+        ? {
+            ...a,
+            sentMessages: [
+              ...(a.sentMessages ?? []),
+              {
+                id: genRandom(),
+                text: text || null,
+                audioPresent: !!audio,
+                timestamp: new Date().toISOString(),
+              },
+            ],
+          }
+        : a
+    )
+  );
+
+  // --- NEW: Send transcript to backend via WEBSOCKET ---
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    const payload = {
+      type: "instruction",
+      device_id: alertId,            // Or "NODE_01", depends on your design
+      message: text || "Voice message attached",
+    };
+
+    ws.send(JSON.stringify(payload));
+    console.log("WS → Sent instruction:", payload);
+  } else {
+    console.error("WebSocket not open.");
+    alert("WebSocket not connected.");
+  }
+
+  // Clear data (optional)
+  setTranscripts((t) => ({ ...t, [alertId]: "" }));
+  setAudioBlobs((a) => ({ ...a, [alertId]: null }));
+
+  alert("Message sent via WebSocket.");
+};
+
 
   const playRecordedAudio = (alertId: string) => {
     const blob = audioBlobs[alertId];

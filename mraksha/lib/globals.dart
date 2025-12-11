@@ -7,6 +7,35 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import 'package:translator/translator.dart';
+
+final _translator = GoogleTranslator();
+
+String globalLanguage = "en-US";
+String globalInstruction = "";
+
+// Future<void> translateToGlobalLanguage(String text) async {
+//   try {
+//     final translation = await _translator.translate(text, to: globalLanguage);
+//     globalInstruction = translation.text;
+//     print("Translated: $globalInstruction");
+//   } catch (e) {
+//     print("Translation Error: $e");
+//   }
+// }
+
+// final _translator = GoogleTranslator();
+
+Future<String> translateToGlobalLanguage(String text) async {
+  try {
+    final translation = await _translator.translate(text, to: globalLanguage);
+    return translation.text;
+  } catch (e) {
+    print("Translation Error: $e");
+    return text; // fallback
+  }
+}
+
 Future<List> sensorList = NativeSensorService.getSensorList();
 List<ScanResult> nearbyDevices = [];
 BluetoothConnection? globalConnection;
@@ -32,9 +61,10 @@ final FlutterTts tts = FlutterTts();
 // }
 
 Future<void> speakMessage() async {
-  await tts.setLanguage("en-US");
-  await tts.speak("This is a test emergency message");
+  await tts.setLanguage(globalLanguage);
+  await tts.speak(globalInstruction);
 }
+
 // Future<void> makeCall(String number) async {
 //   final Uri callUri = Uri(scheme: 'tel', path: number);
 //   await launchUrl(callUri);
