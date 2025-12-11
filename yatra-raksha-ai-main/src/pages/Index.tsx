@@ -20,13 +20,13 @@ const Index = () => {
     setUser(null);
   };
 
-  // if (!user) {
-  //   return <Login onLogin={handleLogin} />;
-  // }
+  if (!user) {
+    return <Login onLogin={handleLogin} />;
+  }
 
-  // if (user.type === 'tourism') {
-  //   return <TourismDashboard onLogout={handleLogout} username={user.username} />;
-  // }
+  if (user.type === 'tourism') {
+    return <TourismDashboard onLogout={handleLogout} username={user.username} />;
+  }
 
   return <PoliceDashboard onLogout={handleLogout} username="Resq dashboard" />;
   // return <PoliceDashboard onLogout={handleLogout} username={user.username} />;

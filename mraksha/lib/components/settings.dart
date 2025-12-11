@@ -1,397 +1,240 @@
 // import 'package:flutter/material.dart';
-// import 'package:flutter/services.dart';
-// import 'package:sensors_plus/sensors_plus.dart';
 // import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-// import 'package:permission_handler/permission_handler.dart';
-// import 'package:connectivity_plus/connectivity_plus.dart';
-// import 'package:internet_connection_checker/internet_connection_checker.dart';
+// import 'package:mraksha/services/native_sensor_service.dart';
+// import 'package:mraksha/services/network_service.dart';
+// import 'package:mraksha/services/sensor_service.dart';
 
-// class MyHomePage extends StatefulWidget {
+// class DeviceDetails extends StatefulWidget {
 //   final String title;
-//   const MyHomePage({super.key, required this.title});
+//   const DeviceDetails({super.key, required this.title});
 
 //   @override
-//   State<MyHomePage> createState() => _MyHomePageState();
+//   State<DeviceDetails> createState() => _DeviceDetailsState();
 // }
 
-// class _MyHomePageState extends State<MyHomePage> {
-//   static const platform = MethodChannel("sensor_channel");
-
-//   // ---------- NETWORK ----------
-//   String networkStatus = "Checking...";
+// class _DeviceDetailsState extends State<DeviceDetails> {
+//   String networkStatus = "Checking…";
 //   String connectionType = "Unknown";
 
-//   // ---------- SENSORS ----------
 //   List<dynamic> sensorList = [];
-//   bool sensorsStarted = false;
+//   List<BluetoothDevice> connectedDevices = [];
+//   List<ScanResult> nearbyDevices = [];
 
 //   double ax = 0, ay = 0, az = 0;
 //   double gx = 0, gy = 0, gz = 0;
 //   double mx = 0, my = 0, mz = 0;
 
-//   // ---------- BLUETOOTH ----------
-//   List<BluetoothDevice> connectedDevices = [];
-//   List<ScanResult> nearbyDevices = [];
-//   bool scanning = false;
-
 //   @override
 //   void initState() {
 //     super.initState();
-//     loadSensorList();
-//     requestBluetoothPermissions();
-//     loadConnectedBluetoothDevices();
-//     startNetworkListener();
+//     loadAllData();
 //   }
 
-//   // ---------- NETWORK LISTENER ----------
-//   void startNetworkListener() {
-//     Connectivity().onConnectivityChanged.listen((
-//       List<ConnectivityResult> results,
-//     ) async {
-//       // true internet check (ping based)
-//       bool hasInternet = await InternetConnectionChecker().hasConnection;
-
+//   void loadAllData() async {
+//     // network
+//     NetworkService.networkStatusStream().listen((data) {
 //       setState(() {
-//         networkStatus = hasInternet ? "Connected" : "No Internet";
-
-//         if (results.contains(ConnectivityResult.wifi)) {
-//           connectionType = "WiFi";
-//         } else if (results.contains(ConnectivityResult.mobile)) {
-//           connectionType = "Mobile Data";
-//         } else if (results.contains(ConnectivityResult.ethernet)) {
-//           connectionType = "Ethernet";
-//         } else {
-//           connectionType = "Offline";
-//         }
-//       });
-//     });
-//   }
-
-//   // ---------- PERMISSIONS ----------
-//   Future<void> requestBluetoothPermissions() async {
-//     await [
-//       Permission.bluetooth,
-//       Permission.bluetoothScan,
-//       Permission.bluetoothConnect,
-//       Permission.location,
-//     ].request();
-//   }
-
-//   // ---------- SENSOR LIST ----------
-//   Future<void> loadSensorList() async {
-//     try {
-//       final sensors = await platform.invokeMethod("getSensorList");
-//       setState(() => sensorList = sensors);
-//     } catch (e) {
-//       print("Error loading sensors: $e");
-//     }
-//   }
-
-//   // ---------- START LIVE SENSOR READ ----------
-//   void startSensors() {
-//     if (sensorsStarted) return;
-//     sensorsStarted = true;
-
-//     accelerometerEventStream().listen((e) {
-//       setState(() {
-//         ax = e.x;
-//         ay = e.y;
-//         az = e.z;
+//         networkStatus = data["status"]!;
+//         connectionType = data["type"]!;
 //       });
 //     });
 
-//     gyroscopeEventStream().listen((e) {
-//       setState(() {
-//         gx = e.x;
-//         gy = e.y;
-//         gz = e.z;
-//       });
-//     });
-
-//     magnetometerEventStream().listen((e) {
-//       setState(() {
-//         mx = e.x;
-//         my = e.y;
-//         mz = e.z;
-//       });
-//     });
-//   }
-
-//   // ---------- BLUETOOTH ----------
-//   Future<void> loadConnectedBluetoothDevices() async {
-//     connectedDevices = await FlutterBluePlus.connectedDevices;
-//     setState(() {});
-//   }
-
-//   void scanNearbyDevices() async {
-//     if (scanning) return;
-
-//     nearbyDevices.clear();
-//     scanning = true;
+//     // sensors
+//     sensorList = await NativeSensorService.getSensorList();
 //     setState(() {});
 
-//     FlutterBluePlus.startScan(timeout: const Duration(seconds: 5));
-
-//     FlutterBluePlus.scanResults.listen((results) {
-//       setState(() => nearbyDevices = results);
+//     SensorService.accelerometerStream().listen((e) {
+//       setState(() {
+//         ax = e["x"]!;
+//         ay = e["y"]!;
+//         az = e["z"]!;
+//       });
 //     });
 
-//     Future.delayed(const Duration(seconds: 5), () {
-//       scanning = false;
-//       FlutterBluePlus.stopScan();
-//       setState(() {});
+//     SensorService.gyroscopeStream().listen((e) {
+//       setState(() {
+//         gx = e["x"]!;
+//         gy = e["y"]!;
+//         gz = e["z"]!;
+//       });
+//     });
+
+//     SensorService.magnetometerStream().listen((e) {
+//       setState(() {
+//         mx = e["x"]!;
+//         my = e["y"]!;
+//         mz = e["z"]!;
+//       });
 //     });
 //   }
 
-//   bool isSmartWatch(String name) {
-//     name = name.toLowerCase();
-//     return name.contains("watch") ||
-//         name.contains("gear") ||
-//         name.contains("galaxy") ||
-//         name.contains("amazfit") ||
-//         name.contains("fitbit") ||
-//         name.contains("wear");
+// }
+
+// import 'dart:async';
+// import 'package:mraksha/services/network_service.dart';
+// import 'package:mraksha/services/native_sensor_service.dart';
+// import 'package:mraksha/services/sensor_service.dart';
+
+// class DeviceStatusService {
+//   // Singleton pattern
+//   DeviceStatusService._internal();
+//   static final DeviceStatusService instance = DeviceStatusService._internal();
+
+//   // Network
+//   String networkStatus = "Unknown";
+//   String connectionType = "Unknown";
+
+//   // Accelerometer
+//   double ax = 0, ay = 0, az = 0;
+
+//   // Gyroscope
+//   double gx = 0, gy = 0, gz = 0;
+
+//   // Magnetometer
+//   double mx = 0, my = 0, mz = 0;
+
+//   // Sensor list
+//   List<dynamic> sensorList = [];
+
+//   // Streams
+//   late StreamSubscription networkSub;
+//   late StreamSubscription accelSub;
+//   late StreamSubscription gyroSub;
+//   late StreamSubscription magnoSub;
+
+//   bool _initialized = false;
+
+//   Future<void> initialize() async {
+//     if (_initialized) return; // avoid double init
+//     _initialized = true;
+
+//     // Load sensor list
+//     sensorList = await NativeSensorService.getSensorList();
+
+//     // Network stream
+//     networkSub = NetworkService.networkStatusStream().listen((data) {
+//       networkStatus = data["status"] ?? "Unknown";
+//       connectionType = data["type"] ?? "Unknown";
+//     });
+
+//     // Accelerometer
+//     accelSub = SensorService.accelerometerStream().listen((e) {
+//       ax = e["x"]!;
+//       ay = e["y"]!;
+//       az = e["z"]!;
+//     });
+
+//     // Gyroscope
+//     gyroSub = SensorService.gyroscopeStream().listen((e) {
+//       gx = e["x"]!;
+//       gy = e["y"]!;
+//       gz = e["z"]!;
+//     });
+
+//     // Magnetometer
+//     magnoSub = SensorService.magnetometerStream().listen((e) {
+//       mx = e["x"]!;
+//       my = e["y"]!;
+//       mz = e["z"]!;
+//     });
 //   }
 
-//   // ---------- UI ----------
-//   @override
-//   Widget build(BuildContext context) {
-//     return Scaffold(
-//       appBar: AppBar(title: Text(widget.title)),
-//       body: SingleChildScrollView(
-//         padding: const EdgeInsets.all(16),
-//         child: Column(
-//           crossAxisAlignment: CrossAxisAlignment.start,
-//           children: [
-//             // NETWORK STATUS
-//             const Text(
-//               "Network Status:",
-//               style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-//             ),
-//             Text(
-//               "Status: $networkStatus",
-//               style: const TextStyle(fontSize: 18),
-//             ),
-//             Text(
-//               "Connection Type: $connectionType",
-//               style: const TextStyle(fontSize: 18),
-//             ),
-//             const Divider(height: 30, thickness: 2),
-
-//             // SENSOR LIST
-//             const Text(
-//               "Available Sensors:",
-//               style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-//             ),
-//             for (var s in sensorList)
-//               Text("• $s", style: const TextStyle(fontSize: 18)),
-//             const Divider(height: 30, thickness: 2),
-
-//             // CONNECTED DEVICES
-//             const Text(
-//               "Connected Bluetooth Devices:",
-//               style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-//             ),
-//             for (var d in connectedDevices)
-//               ListTile(
-//                 title: Text("${d.platformName} (${d.remoteId})"),
-//                 subtitle: isSmartWatch(d.platformName)
-//                     ? const Text("Smartwatch Detected ✔")
-//                     : null,
-//               ),
-//             const Divider(height: 30, thickness: 2),
-
-//             // NEARBY SCAN
-//             Row(
-//               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-//               children: [
-//                 const Text(
-//                   "Nearby Bluetooth Devices:",
-//                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-//                 ),
-//                 ElevatedButton(
-//                   onPressed: scanNearbyDevices,
-//                   child: const Text("Scan"),
-//                 ),
-//               ],
-//             ),
-
-//             for (var r in nearbyDevices)
-//               ListTile(
-//                 title: Text("${r.device.platformName} (${r.device.remoteId})"),
-//                 subtitle: isSmartWatch(r.device.platformName)
-//                     ? const Text("Smartwatch Detected ✔")
-//                     : null,
-//               ),
-//             const Divider(height: 30, thickness: 2),
-
-//             // SENSOR START BUTTON
-//             Center(
-//               child: ElevatedButton(
-//                 onPressed: startSensors,
-//                 child: const Text("Start Reading Phone Sensors"),
-//               ),
-//             ),
-//             const SizedBox(height: 20),
-
-//             // SENSOR VALUES
-//             Text(
-//               "Accelerometer: X:$ax  Y:$ay  Z:$az",
-//               style: const TextStyle(fontSize: 18),
-//             ),
-//             const SizedBox(height: 10),
-//             Text(
-//               "Gyroscope: X:$gx  Y:$gy  Z:$gz",
-//               style: const TextStyle(fontSize: 18),
-//             ),
-//             const SizedBox(height: 10),
-//             Text(
-//               "Magnetometer: X:$mx  Y:$my  Z:$mz",
-//               style: const TextStyle(fontSize: 18),
-//             ),
-//           ],
-//         ),
-//       ),
-//     );
+//   // Optional cleanup
+//   void dispose() {
+//     networkSub.cancel();
+//     accelSub.cancel();
+//     gyroSub.cancel();
+//     magnoSub.cancel();
 //   }
 // }
-import 'package:flutter/material.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:mraksha/services/native_sensor_service.dart';
+
+import 'dart:async';
 import 'package:mraksha/services/network_service.dart';
+import 'package:mraksha/services/native_sensor_service.dart';
 import 'package:mraksha/services/sensor_service.dart';
+import 'package:pedometer/pedometer.dart';
 
-class MyHomePage extends StatefulWidget {
-  final String title;
-  const MyHomePage({super.key, required this.title});
+class DeviceStatusService {
+  // Singleton
+  DeviceStatusService._internal();
+  static final DeviceStatusService instance = DeviceStatusService._internal();
 
-  @override
-  State<MyHomePage> createState() => _MyHomePageState();
-}
+  bool _initialized = false;
 
-class _MyHomePageState extends State<MyHomePage> {
-  String networkStatus = "Checking…";
+  // Network
+  String networkStatus = "Unknown";
   String connectionType = "Unknown";
 
-  List<dynamic> sensorList = [];
-  List<BluetoothDevice> connectedDevices = [];
-  List<ScanResult> nearbyDevices = [];
-
+  // Sensor values
   double ax = 0, ay = 0, az = 0;
   double gx = 0, gy = 0, gz = 0;
   double mx = 0, my = 0, mz = 0;
 
-  @override
-  void initState() {
-    super.initState();
-    loadAllData();
-  }
+  int stepCount = 0;
+  int proximity = 0;
 
-  void loadAllData() async {
-    // network
-    NetworkService.networkStatusStream().listen((data) {
-      setState(() {
-        networkStatus = data["status"]!;
-        connectionType = data["type"]!;
-      });
-    });
+  // Sensor List
+  List<dynamic> sensorList = [];
 
-    // sensors
+  // Stream subscriptions
+  StreamSubscription? networkSub;
+  StreamSubscription? accelSub;
+  StreamSubscription? gyroSub;
+  StreamSubscription? magnoSub;
+  StreamSubscription? stepSub;
+  StreamSubscription? proxSub;
+
+  Future<void> initialize() async {
+    if (_initialized) return;
+    _initialized = true;
+
+    // Load available sensors
     sensorList = await NativeSensorService.getSensorList();
-    setState(() {});
 
-    SensorService.accelerometerStream().listen((e) {
-      setState(() {
-        ax = e["x"]!;
-        ay = e["y"]!;
-        az = e["z"]!;
-      });
+    // Network status
+    networkSub = NetworkService.networkStatusStream().listen((data) {
+      networkStatus = data["status"] ?? "Unknown";
+      connectionType = data["type"] ?? "Unknown";
     });
 
-    SensorService.gyroscopeStream().listen((e) {
-      setState(() {
-        gx = e["x"]!;
-        gy = e["y"]!;
-        gz = e["z"]!;
-      });
+    // Accelerometer
+    accelSub = SensorService.accelerometerStream().listen((e) {
+      ax = e["x"]!;
+      ay = e["y"]!;
+      az = e["z"]!;
     });
 
-    SensorService.magnetometerStream().listen((e) {
-      setState(() {
-        mx = e["x"]!;
-        my = e["y"]!;
-        mz = e["z"]!;
-      });
+    // Gyroscope
+    gyroSub = SensorService.gyroscopeStream().listen((e) {
+      gx = e["x"]!;
+      gy = e["y"]!;
+      gz = e["z"]!;
     });
 
-    // bluetooth
-    // await BluetoothService.requestPermissions();
-    // connectedDevices = await BluetoothService.getConnectedDevices();
-    // setState(() {});
+    // Magnetometer
+    magnoSub = SensorService.magnetometerStream().listen((e) {
+      mx = e["x"]!;
+      my = e["y"]!;
+      mz = e["z"]!;
+    });
+
+    // Step count
+    stepSub = SensorService.stepCountStream().listen((StepCount e) {
+      stepCount = e.steps;
+    });
+
+    // Proximity
+    proxSub = SensorService.proximityStream().listen((value) {
+      proximity = value; // 0 = far, 1 = near
+    });
   }
 
-  // void scanNearby() {
-  //   BluetoothService.scanNearbyDevices().listen((list) {
-  //     setState(() => nearbyDevices = list);
-  //   });
-  // }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.title)),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              "Network Status: $networkStatus",
-              style: const TextStyle(fontSize: 18),
-            ),
-            Text(
-              "Connection: $connectionType",
-              style: const TextStyle(fontSize: 18),
-            ),
-            const Divider(),
-
-            const Text("Sensors:", style: TextStyle(fontSize: 22)),
-            for (var s in sensorList) Text("• $s"),
-
-            const Divider(),
-
-            // const Text(
-            //   "Connected Bluetooth Devices:",
-            //   style: TextStyle(fontSize: 22),
-            // ),
-            // for (var d in connectedDevices)
-            //   ListTile(
-            //     title: Text(d.platformName),
-            //     subtitle: BluetoothService.isSmartWatch(d.platformName)
-            //         ? const Text("Smartwatch Detected ✔")
-            //         : null,
-            //   ),
-
-            // ElevatedButton(
-            //   onPressed: scanNearby,
-            //   child: const Text("Scan Nearby"),
-            // ),
-
-            // for (var r in nearbyDevices)
-            //   ListTile(
-            //     title: Text(r.device.platformName),
-            //     subtitle: BluetoothService.isSmartWatch(r.device.platformName)
-            //         ? const Text("Smartwatch ✔")
-            //         : null,
-            //   ),
-            const Divider(),
-
-            Text("Accelerometer: X:$ax  Y:$ay  Z:$az"),
-            Text("Gyroscope: X:$gx  Y:$gy  Z:$gz"),
-            Text("Magnetometer: X:$mx  Y:$my  Z:$mz"),
-          ],
-        ),
-      ),
-    );
+  void dispose() {
+    networkSub?.cancel();
+    accelSub?.cancel();
+    gyroSub?.cancel();
+    magnoSub?.cancel();
+    stepSub?.cancel();
+    proxSub?.cancel();
   }
 }
