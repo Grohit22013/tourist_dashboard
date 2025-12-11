@@ -503,8 +503,9 @@ class _BluetoothHomePageState extends State<BluetoothHomePage> {
     } catch (_) {
       parsed = null;
     }
-
+    print("\nhello lllo\n" + line);
     if (parsed != null) {
+      print("\nits not null \n");
       _handleJsonFromDevice(parsed);
     }
 
@@ -563,7 +564,8 @@ class _BluetoothHomePageState extends State<BluetoothHomePage> {
   Future<void> _sendCommand(Map<String, dynamic> cmd) async {
     try {
       final net = await NetworkService.checkStatusOnce();
-      print("Network check: $net");
+
+      print("\nNetwork check: $net\n");
 
       if (net["status"] == "1") {
         // Cloud

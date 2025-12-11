@@ -92,7 +92,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await DeviceStatusService.instance.initialize();
   await initializeService();
-  await FMTC.instance('mapStore').manage.create();
+  // await FMTC.instance('mapStore').manage.create();
   runApp(YatraRakshaApp());
 }
 

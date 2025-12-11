@@ -1,77 +1,27 @@
 // import 'package:flutter/material.dart';
 // import 'package:flutter_map/flutter_map.dart';
-// import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
 // import 'package:latlong2/latlong.dart';
-// import 'package:connectivity_plus/connectivity_plus.dart';
 
-// class MapPage extends StatefulWidget {
+// class MapPage extends StatelessWidget {
 //   const MapPage({super.key});
 
 //   @override
-//   State<MapPage> createState() => _MapPageState();
-// }
-
-// class _MapPageState extends State<MapPage> {
-//   bool isOnline = true;
-
-//   @override
-//   void initState() {
-//     super.initState();
-//     _checkConnectivity();
-//     Connectivity().onConnectivityChanged.listen((status) {
-//       setState(() {
-//         isOnline = status != ConnectivityResult.none;
-//       });
-//     });
-//   }
-
-//   Future<void> _checkConnectivity() async {
-//     final status = await Connectivity().checkConnectivity();
-//     isOnline = status != ConnectivityResult.none;
-//     setState(() {});
-//   }
-
-//   @override
 //   Widget build(BuildContext context) {
-//     final tileProvider = FMTC.instance('mapStore').getTileProvider();
-
 //     return Scaffold(
 //       appBar: AppBar(
-//         title: const Text('Offline Map'),
+//         title: const Text("Jaipur Map"),
 //         backgroundColor: Colors.black87,
 //       ),
-//       body: Stack(
+//       body: FlutterMap(
+//         options: MapOptions(
+//           initialCenter: LatLng(26.9124, 75.7873), // Jaipur
+//           initialZoom: 13,
+//         ),
 //         children: [
-//           FlutterMap(
-//             options: MapOptions(
-//               initialCenter: LatLng(20.5937, 78.9629), // India center
-//               initialZoom: 5,
-//             ),
-//             children: [
-//               TileLayer(
-//                 tileProvider: tileProvider,
-//                 urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-//                 userAgentPackageName: 'com.yatra.raksha',
-//               ),
-//             ],
+//           TileLayer(
+//             urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+//             userAgentPackageName: "com.yatra.raksha",
 //           ),
-
-//           if (!isOnline)
-//             Positioned(
-//               top: 10,
-//               right: 10,
-//               child: Container(
-//                 padding: const EdgeInsets.all(8),
-//                 decoration: BoxDecoration(
-//                   color: Colors.red.withOpacity(0.7),
-//                   borderRadius: BorderRadius.circular(8),
-//                 ),
-//                 child: const Text(
-//                   "Offline Mode",
-//                   style: TextStyle(color: Colors.white, fontSize: 14),
-//                 ),
-//               ),
-//             ),
 //         ],
 //       ),
 //     );
@@ -80,80 +30,93 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
 
-class MapPage extends StatefulWidget {
+class MapPage extends StatelessWidget {
   const MapPage({super.key});
 
   @override
-  State<MapPage> createState() => _MapPageState();
-}
-
-class _MapPageState extends State<MapPage> {
-  bool isOnline = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _checkConnectivity();
-
-    Connectivity().onConnectivityChanged.listen((status) {
-      setState(() {
-        isOnline = status != ConnectivityResult.none;
-      });
-    });
-  }
-
-  Future<void> _checkConnectivity() async {
-    final status = await Connectivity().checkConnectivity();
-    setState(() {
-      isOnline = status != ConnectivityResult.none;
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final tileProvider = FMTC.instance('mapStore').getTileProvider();
-
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Offline Map'),
+        title: const Text("Jaipur Map"),
         backgroundColor: Colors.black87,
       ),
-      body: Stack(
+      body: FlutterMap(
+        options: MapOptions(
+          initialCenter: LatLng(26.9124, 75.7873), // Jaipur
+          initialZoom: 13,
+        ),
         children: [
-          FlutterMap(
-            options: MapOptions(
-              initialCenter: LatLng(20.5937, 78.9629),
-              initialZoom: 5,
-            ),
-            children: [
-              TileLayer(
-                urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-                tileProvider: tileProvider,
-                userAgentPackageName: 'com.yatra.raksha',
+          TileLayer(
+            urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+            userAgentPackageName: "com.yatra.raksha",
+          ),
+
+          // --- Markers Layer ---
+          MarkerLayer(
+            markers: [
+              // 🔴 Red Main Marker (example: Jaipur center)
+              Marker(
+                point: LatLng(26.9124, 75.7873),
+                width: 40,
+                height: 40,
+                child: const Icon(
+                  Icons.location_pin,
+                  color: Colors.red,
+                  size: 40,
+                ),
+              ),
+
+              // 🔵 Blue Marker 1
+              Marker(
+                point: LatLng(26.9150, 75.8100),
+                width: 35,
+                height: 35,
+                child: const Icon(
+                  Icons.location_pin,
+                  color: Colors.blue,
+                  size: 35,
+                ),
+              ),
+
+              // 🔵 Blue Marker 2
+              Marker(
+                point: LatLng(26.9000, 75.7800),
+                width: 35,
+                height: 35,
+                child: const Icon(
+                  Icons.location_pin,
+                  color: Colors.blue,
+                  size: 35,
+                ),
+              ),
+
+              // 🔵 Blue Marker 3
+              Marker(
+                point: LatLng(26.9300, 75.7700),
+                width: 35,
+                height: 35,
+                child: const Icon(
+                  Icons.location_pin,
+                  color: Colors.blue,
+                  size: 35,
+                ),
+              ),
+
+              // 🔵 Blue Marker 4
+              Marker(
+                point: LatLng(26.9050, 75.8000),
+                width: 35,
+                height: 35,
+                child: const Icon(
+                  Icons.location_pin,
+                  color: Colors.blue,
+                  size: 35,
+                ),
               ),
             ],
           ),
-
-          if (!isOnline)
-            Positioned(
-              top: 10,
-              right: 10,
-              child: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.red.withOpacity(0.7),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Text(
-                  "Offline Mode",
-                  style: TextStyle(color: Colors.white),
-                ),
-              ),
-            ),
         ],
       ),
     );
