@@ -265,11 +265,8 @@ export const PoliceMonitoring: React.FC = () => {
   const [translateError, setTranslateError] = useState<string | null>(null);
 
   /* ---------------- Translation helpers (MyMemory) ---------------- */
-  // Helper to call MyMemory public API. NOTE: quality and limits apply — swap for paid provider in prod.
   const translateSingle = async (text: string, target: string) => {
     if (!text) return "";
-    // MyMemory needs a source|target pair. We'll default source to 'en' for now.
-    // If user selects 'auto', assume 'en' -> target.
     const tgt = target === "auto" ? "hi" : target;
     const source = "en";
     const url = `${MYMEMORY_ENDPOINT}?q=${encodeURIComponent(text)}&langpair=${encodeURIComponent(`${source}|${tgt}`)}`;
@@ -281,11 +278,9 @@ export const PoliceMonitoring: React.FC = () => {
         throw new Error(`Translate API error ${resp.status}: ${t}`);
       }
       const js = await resp.json();
-      // MyMemory returns responseData.translatedText
       return js?.responseData?.translatedText ?? "";
     } catch (e) {
       console.error("MyMemory translate error:", e);
-      // fallback: return original text
       return text;
     }
   };
@@ -359,7 +354,7 @@ export const PoliceMonitoring: React.FC = () => {
     setTranslatingPage(false);
   };
 
-  /* ---------------- Recording helpers ---------------- */
+  /* ---------------- Recording helpers (FIXED: no duplicate transcript) ---------------- */
 
   const startRecording = async (alertId: string) => {
     // stop any other recording first
@@ -367,11 +362,12 @@ export const PoliceMonitoring: React.FC = () => {
       await stopRecording(recordingFor);
     }
 
+    // initialize transcript and audio storage for this alert
     setTranscripts((t) => ({ ...t, [alertId]: "" }));
     setAudioBlobs((a) => ({ ...a, [alertId]: null }));
     setRecordingFor(alertId);
 
-    // SpeechRecognition
+    // SpeechRecognition (live transcription)
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (SpeechRecognition) {
       try {
@@ -380,15 +376,20 @@ export const PoliceMonitoring: React.FC = () => {
         rec.interimResults = true;
         rec.maxAlternatives = 1;
 
+        // IMPORTANT: rebuild the transcript each onresult from ev.results
         rec.onresult = (ev: any) => {
-          let interim = "";
-          let final = "";
-          for (let i = 0; i < ev.results.length; i++) {
-            const res = ev.results[i];
-            if (res.isFinal) final += res[0].transcript + " ";
-            else interim += res[0].transcript + " ";
+          try {
+            let combined = "";
+            for (let i = 0; i < ev.results.length; i++) {
+              const res = ev.results[i];
+              // use the best alternative transcript for each result
+              combined += res[0].transcript + (res.isFinal ? " " : " ");
+            }
+            // set the transcript to the rebuilt combined string (do NOT append previous state)
+            setTranscripts((t) => ({ ...t, [alertId]: combined.trim() }));
+          } catch (e) {
+            console.warn("onresult processing error:", e);
           }
-          setTranscripts((t) => ({ ...t, [alertId]: (t[alertId] ? t[alertId] + " " : "") + final + interim }));
         };
 
         rec.onerror = (e: any) => {
@@ -396,7 +397,7 @@ export const PoliceMonitoring: React.FC = () => {
         };
 
         rec.onend = () => {
-          // keep transcript; recordingFor is only cleared when stopRecording called
+          // recognition stopped naturally — we keep the final transcript
         };
 
         rec.start();
