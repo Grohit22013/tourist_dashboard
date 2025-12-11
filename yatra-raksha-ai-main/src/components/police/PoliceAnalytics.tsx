@@ -1,360 +1,402 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+// src/components/police/PoliceAnalytics.tsx
+'use client';
+
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
+import 'leaflet.heat';
+
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { 
-  BarChart3, 
-  TrendingUp, 
-  TrendingDown, 
-  Shield, 
-  AlertTriangle, 
-  Users,
-  Clock,
-  MapPin,
-  Activity,
-  ScanLine
-} from 'lucide-react';
+import { Search } from 'lucide-react';
 
-const responseTimeData = [
-  { month: 'Jan', avgTime: 4.2, incidents: 234, resolved: 218 },
-  { month: 'Feb', avgTime: 3.8, incidents: 189, resolved: 175 },
-  { month: 'Mar', avgTime: 4.1, incidents: 298, resolved: 276 },
-  { month: 'Apr', avgTime: 3.6, incidents: 267, resolved: 251 },
-  { month: 'May', avgTime: 3.9, incidents: 312, resolved: 289 },
-  { month: 'Jun', avgTime: 3.4, incidents: 256, resolved: 241 },
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Popup,
+  Circle,
+  LayerGroup,
+  useMap,
+} from 'react-leaflet';
+
+/* -------------------- Types -------------------- */
+type TrustedPlace = {
+  id: string;
+  name: string;
+  category: 'temple' | 'fort' | 'waterfall' | 'hill-station' | 'national-park' | 'beach';
+  lat: number;
+  lon: number;
+  source?: string;
+  notes?: string;
+};
+
+type RiskZone = {
+  id: string;
+  label: string;
+  type: string;
+  lat: number;
+  lon: number;
+  radius: number;
+  color: string;
+};
+
+/* -------------------- Seed data (Ministry / Incredible India examples) -------------------- */
+const TRUSTED_PLACES: TrustedPlace[] = [
+  { id: 'tp-agra-taj', name: 'Taj Mahal (Agra)', category: 'fort', lat: 27.175145, lon: 78.042142, source: 'Incredible India' },
+  { id: 'tp-rishikesh', name: 'Rishikesh (Ganga Ghats)', category: 'temple', lat: 30.0869, lon: 78.2676, source: 'Incredible India' },
+  { id: 'tp-manali', name: 'Manali - Solang / Old Manali', category: 'hill-station', lat: 32.2432, lon: 77.1892, source: 'Incredible India' },
+  { id: 'tp-ooty', name: 'Ooty (Udhagamandalam)', category: 'hill-station', lat: 11.4064, lon: 76.6950, source: 'Incredible India' },
+  { id: 'tp-munnar', name: 'Munnar', category: 'hill-station', lat: 10.0892, lon: 77.0591, source: 'Incredible India' },
+  { id: 'tp-shillong', name: 'Shillong', category: 'hill-station', lat: 25.5788, lon: 91.8933, source: 'Incredible India' },
+  { id: 'tp-calangute', name: 'Calangute Beach, Goa', category: 'beach', lat: 15.5471, lon: 73.7515, source: 'Incredible India' },
 ];
 
-const crimeHotspots = [
-  { location: 'Kashmir Border Areas', incidents: 45, severity: 'critical', trend: '+12%' },
-  { location: 'Delhi Tourist Areas', incidents: 123, severity: 'high', trend: '-8%' },
-  { location: 'Goa Beach Zones', incidents: 89, severity: 'medium', trend: '+5%' },
-  { location: 'Manali Adventure Routes', incidents: 67, severity: 'high', trend: '+15%' },
-  { location: 'Rajasthan Desert Tours', incidents: 34, severity: 'low', trend: '-3%' },
+const RISK_ZONES: RiskZone[] = [
+  { id: 'rz-cliff-kedarnath', label: 'Cliff / Steep terrain (example)', type: 'cliff', lat: 30.7352, lon: 79.0668, radius: 1200, color: '#ef4444' },
+  { id: 'rz-wildlife-kaziranga', label: 'Wildlife Zone - High animal activity (example)', type: 'wildlife', lat: 26.5775, lon: 93.1710, radius: 4000, color: '#d97706' },
+  { id: 'rz-no-network-himalaya', label: 'No-network valley (example)', type: 'no-network', lat: 32.1046, lon: 77.2235, radius: 5000, color: '#9ca3af' },
 ];
 
-const incidentTypes = [
-  { type: 'Emergency SOS', count: 156, percentage: 32, trend: '+8%', color: 'text-critical' },
-  { type: 'Medical Emergency', count: 89, percentage: 18, trend: '+12%', color: 'text-danger' },
-  { type: 'Tourist Harassment', count: 134, percentage: 28, trend: '-5%', color: 'text-warning' },
-  { type: 'Theft/Fraud', count: 67, percentage: 14, trend: '-12%', color: 'text-safe' },
-  { type: 'Lost Tourist', count: 39, percentage: 8, trend: '+3%', color: 'text-primary' },
-];
+/* -------------------- Utils -------------------- */
+const RISK_PLACES_KEY = 'yatra_trusted_places_v1';
+const DENSITY_KEY = 'yatra_density_mode_v1';
 
-const unitPerformance = [
-  { unit: 'Unit-DL-15', responseTime: '2.8min', incidents: 45, efficiency: 94 },
-  { unit: 'Unit-MH-23', responseTime: '3.2min', incidents: 38, efficiency: 91 },
-  { unit: 'Unit-RJ-09', responseTime: '3.8min', incidents: 52, efficiency: 89 },
-  { unit: 'Unit-HP-07', responseTime: '4.1min', incidents: 29, efficiency: 87 },
-  { unit: 'Unit-JK-03', responseTime: '3.5min', incidents: 41, efficiency: 92 },
-];
+function genId(prefix = 'id') {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+}
 
-export const PoliceAnalytics = () => {
-  const getSeverityColor = (severity: string) => {
-    switch (severity) {
-      case 'critical': return 'text-critical';
-      case 'high': return 'text-danger';
-      case 'medium': return 'text-warning';
-      case 'low': return 'text-safe';
-      default: return 'text-muted-foreground';
+/* -------------------- Component -------------------- */
+export const PoliceAnalytics: React.FC = () => {
+  const [places, setPlaces] = useState<TrustedPlace[]>(() => {
+    try {
+      const raw = localStorage.getItem(RISK_PLACES_KEY);
+      if (raw) return JSON.parse(raw) as TrustedPlace[];
+    } catch { /* ignore */ }
+    return TRUSTED_PLACES;
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem(RISK_PLACES_KEY, JSON.stringify(places)); } catch { /* ignore */ }
+  }, [places]);
+
+  const [query, setQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<'all' | TrustedPlace['category']>('all');
+
+  const mapRef = useRef<L.Map | null>(null);
+  const heatLayerRef = useRef<any>(null);
+  const [densityMode, setDensityMode] = useState<'places' | 'simulated-realtime'>(() => {
+    try {
+      const r = localStorage.getItem(DENSITY_KEY);
+      return (r as any) || 'places';
+    } catch { return 'places'; }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem(DENSITY_KEY, densityMode); } catch {}
+  }, [densityMode]);
+
+  const [formName, setFormName] = useState('');
+  const [formCategory, setFormCategory] = useState<TrustedPlace['category']>('temple');
+  const [formLat, setFormLat] = useState('');
+  const [formLon, setFormLon] = useState('');
+  const [formNotes, setFormNotes] = useState('');
+
+  const filtered = useMemo(() => {
+    const t = query.trim().toLowerCase();
+    return places.filter(p => {
+      if (categoryFilter !== 'all' && p.category !== categoryFilter) return false;
+      if (!t) return true;
+      return p.name.toLowerCase().includes(t) || (p.notes || '').toLowerCase().includes(t);
+    });
+  }, [places, query, categoryFilter]);
+
+  /* Heatmap update */
+  const updateHeatmap = (mapInstance?: L.Map | null) => {
+    const m = mapInstance || mapRef.current;
+    if (!m) return;
+
+    if (heatLayerRef.current) {
+      try { m.removeLayer(heatLayerRef.current); } catch (e) {}
+      heatLayerRef.current = null;
     }
+
+    const basePoints: [number, number, number][] = [];
+    if (densityMode === 'places') {
+      for (const p of places) basePoints.push([p.lat, p.lon, 0.6]);
+    } else {
+      for (const p of places) {
+        for (let i = 0; i < 6; i++) {
+          const jitterLat = p.lat + (Math.random() - 0.5) * 0.02;
+          const jitterLon = p.lon + (Math.random() - 0.5) * 0.02;
+          basePoints.push([jitterLat, jitterLon, Math.random() * 0.8 + 0.2]);
+        }
+      }
+    }
+
+    // create heat layer using leaflet.heat (L.heatLayer)
+    // @ts-ignore
+    const heatLayer = (L as any).heatLayer(basePoints.map(pt => [pt[0], pt[1], pt[2]]), { radius: 25, blur: 20, maxZoom: 13 });
+    heatLayer.addTo(m);
+    heatLayerRef.current = heatLayer;
   };
 
-  const getEfficiencyColor = (efficiency: number) => {
-    if (efficiency >= 90) return 'text-safe';
-    if (efficiency >= 80) return 'text-warning';
-    return 'text-danger';
+  useEffect(() => {
+    if (!mapRef.current) return;
+    updateHeatmap(mapRef.current);
+  }, [places, densityMode]);
+
+  const onMapCreated = (mapInstance: L.Map) => {
+    mapRef.current = mapInstance;
+    updateHeatmap(mapInstance);
   };
+
+  const handleUseMapClickCoords = () => {
+    if (!mapRef.current) { alert('Map not ready.'); return; }
+    alert('Click on the map to pick coordinates; click once on desired location.');
+    const handler = (ev: any) => {
+      const { latlng } = ev;
+      setFormLat(String(Number(latlng.lat).toFixed(6)));
+      setFormLon(String(Number(latlng.lng).toFixed(6)));
+      mapRef.current?.off('click', handler);
+    };
+    mapRef.current.on('click', handler);
+  };
+
+  const addPlace = () => {
+    const lat = Number(formLat);
+    const lon = Number(formLon);
+    if (!formName.trim() || Number.isNaN(lat) || Number.isNaN(lon)) {
+      alert('Please provide place name and numeric lat/lon.');
+      return;
+    }
+    const p: TrustedPlace = {
+      id: genId('tp'),
+      name: formName.trim(),
+      category: formCategory,
+      lat,
+      lon,
+      notes: formNotes || undefined,
+      source: 'Authority (manual)',
+    };
+    setPlaces(prev => [p, ...prev]);
+    setFormName(''); setFormLat(''); setFormLon(''); setFormNotes('');
+    if (mapRef.current) mapRef.current.setView([p.lat, p.lon], 12);
+  };
+
+  const removePlace = (id: string) => {
+    if (!confirm('Remove this trusted place?')) return;
+    setPlaces(prev => prev.filter(p => p.id !== id));
+  };
+
+  const clearAll = () => {
+    if (!confirm('Clear ALL trusted places? This will remove seeded places as well.')) return;
+    setPlaces([]);
+  };
+
+  /* Helper: center control (uses mapRef) */
+  function CenterButton({ lat, lon }: { lat: number; lon: number }) {
+    return (
+      <Button onClick={() => mapRef.current?.setView([lat, lon], 12)} size="sm" variant="ghost">Center</Button>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="min-h-screen bg-slate-50 p-4">
+      <style>{`
+        .card-surface { box-shadow: 0 8px 28px rgba(2,6,23,0.04); border-radius: 12px; }
+        .muted { color: #6b7280; }
+        .left-pane { height: calc(100vh - 120px); overflow-y: auto; }
+        .right-pane { height: calc(100vh - 120px); overflow-y: auto; }
+      `}</style>
+
+      <header className="max-w-7xl mx-auto mb-4 flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-foreground">Police Analytics Dashboard</h2>
-          <p className="text-muted-foreground">Performance metrics and insights for law enforcement operations</p>
+          <h1 className="text-xl font-semibold text-emerald-700">Trusted Risk Zones & Density — (Ministry-sourced)</h1>
+          <div className="text-xs muted">Marked risk zones + tourist density heatmap (seeded from Incredible India / Ministry lists).</div>
         </div>
-      </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => setDensityMode(m => m === 'places' ? 'simulated-realtime' : 'places')}>
+            Mode: {densityMode === 'places' ? 'Places' : 'Simulated Realtime'}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => { updateHeatmap(mapRef.current); }}>Refresh Heatmap</Button>
+          <Button size="sm" variant="outline" onClick={clearAll}>Reset</Button>
+        </div>
+      </header>
 
-      {/* Key Performance Indicators */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Incidents</CardTitle>
-            <Shield className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-primary">2,847</div>
-            <div className="flex items-center text-xs text-safe">
-              <TrendingDown className="h-3 w-3 mr-1" />
-              -7.2% from last month
+      <main className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6">
+        <aside className="col-span-1 left-pane card-surface p-4 bg-white">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Search className="h-4 w-4 text-muted-foreground" />
+              <Input placeholder="Search places..." value={query} onChange={(e: any) => setQuery(e.target.value)} className="pl-8" />
             </div>
-          </CardContent>
-        </Card>
+            <Badge className="bg-emerald-100">Trusted list</Badge>
+          </div>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Resolution Rate</CardTitle>
-            <Activity className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-safe">94.2%</div>
-            <div className="flex items-center text-xs text-safe">
-              <TrendingUp className="h-3 w-3 mr-1" />
-              +2.8% improvement
-            </div>
-          </CardContent>
-        </Card>
+          <div className="mb-3 flex gap-2">
+            <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value as any)} className="px-2 py-1 border rounded">
+              <option value="all">All categories</option>
+              <option value="temple">Temples</option>
+              <option value="fort">Forts/Monuments</option>
+              <option value="hill-station">Hill stations</option>
+              <option value="waterfall">Waterfalls</option>
+              <option value="national-park">National parks</option>
+              <option value="beach">Beaches</option>
+            </select>
+          </div>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Avg Response Time</CardTitle>
-            <Clock className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-primary">3.4min</div>
-            <div className="flex items-center text-xs text-safe">
-              <TrendingDown className="h-3 w-3 mr-1" />
-              -18s faster
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Units</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-primary">127</div>
-            <div className="flex items-center text-xs text-primary">
-              <Activity className="h-3 w-3 mr-1" />
-              89 on patrol
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Response Time Trends */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <BarChart3 className="h-5 w-5" />
-              Response Time Analysis
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {/* Simulated Chart */}
-              <div className="h-64 bg-gradient-to-br from-primary/5 to-safe/5 rounded-lg flex items-center justify-center border">
-                <div className="text-center space-y-4">
-                  <BarChart3 className="h-16 w-16 text-primary mx-auto" />
-                  <div>
-                    <h3 className="font-semibold">Monthly Response Trends</h3>
-                    <p className="text-sm text-muted-foreground">
-                      Average response time and incident resolution rates
-                    </p>
+          <div className="space-y-3 mb-3">
+            {filtered.length === 0 && <div className="text-sm muted">No places found.</div>}
+            {filtered.map(p => (
+              <Card key={p.id} className="border">
+                <CardHeader>
+                  <CardTitle className="text-sm">{p.name}</CardTitle>
+                </CardHeader>
+                <CardContent className="text-xs">
+                  <div className="text-slate-600">{p.category.replace('-', ' ')}</div>
+                  <div className="text-slate-400 text-xs">Lat: {p.lat.toFixed(5)}, Lon: {p.lon.toFixed(5)}</div>
+                  <div className="flex gap-2 mt-2">
+                    <CenterButton lat={p.lat} lon={p.lon} />
+                    <Button size="sm" variant="outline" onClick={() => removePlace(p.id)}>Remove</Button>
                   </div>
-                  <div className="flex justify-center gap-6 mt-4">
-                    <div className="text-center">
-                      <div className="w-4 h-4 bg-primary rounded-full mx-auto mb-1"></div>
-                      <span className="text-xs">Response Time</span>
-                    </div>
-                    <div className="text-center">
-                      <div className="w-4 h-4 bg-safe rounded-full mx-auto mb-1"></div>
-                      <span className="text-xs">Resolution Rate</span>
-                    </div>
-                  </div>
-                </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          <div className="border-t pt-3">
+            <h4 className="text-sm font-medium mb-2">Add Trusted Place (manual)</h4>
+            <div className="grid grid-cols-1 gap-2">
+              <Input placeholder="Name" value={formName} onChange={(e: any) => setFormName(e.target.value)} />
+              <select value={formCategory} onChange={(e) => setFormCategory(e.target.value as any)} className="px-2 py-2 border rounded">
+                <option value="temple">Temple</option>
+                <option value="fort">Fort/Monument</option>
+                <option value="waterfall">Waterfall</option>
+                <option value="hill-station">Hill station</option>
+                <option value="national-park">National park</option>
+                <option value="beach">Beach</option>
+              </select>
+              <div className="grid grid-cols-2 gap-2">
+                <Input placeholder="Latitude" value={formLat} onChange={(e: any) => setFormLat(e.target.value)} />
+                <Input placeholder="Longitude" value={formLon} onChange={(e: any) => setFormLon(e.target.value)} />
+              </div>
+              <Input placeholder="Notes (optional)" value={formNotes} onChange={(e: any) => setFormNotes(e.target.value)} />
+              <div className="flex gap-2">
+                <Button onClick={addPlace}>Add Place</Button>
+                <Button variant="outline" onClick={() => { setFormLat(''); setFormLon(''); setFormName(''); setFormNotes(''); }}>Clear</Button>
+                <Button variant="ghost" onClick={handleUseMapClickCoords}>Pick from map</Button>
               </div>
             </div>
-          </CardContent>
-        </Card>
-
-        {/* Crime Hotspots */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <MapPin className="h-5 w-5" />
-              Crime Hotspots Analysis
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {crimeHotspots.map((hotspot, index) => (
-                <div key={index} className="flex items-center justify-between p-3 bg-secondary/20 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-danger/10 rounded-full flex items-center justify-center">
-                      <span className="text-sm font-bold text-danger">#{index + 1}</span>
-                    </div>
-                    <div>
-                      <p className="font-medium">{hotspot.location}</p>
-                      <p className="text-sm text-muted-foreground">{hotspot.incidents} incidents</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge 
-                      variant="outline" 
-                      className={`${getSeverityColor(hotspot.severity)} border-current`}
-                    >
-                      {hotspot.severity}
-                    </Badge>
-                    <span className={`text-sm font-medium ${
-                      hotspot.trend.startsWith('+') ? 'text-danger' : 'text-safe'
-                    }`}>
-                      {hotspot.trend}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Incident Type Breakdown */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5" />
-              Incident Type Analysis
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {incidentTypes.map((incident) => (
-                <div key={incident.type} className="flex items-center justify-between p-3 bg-muted/20 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <ScanLine className="h-5 w-5 text-muted-foreground" />
-                    <div>
-                      <p className="font-medium">{incident.type}</p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <div className="w-20 h-2 bg-muted rounded-full">
-                          <div 
-                            className="h-2 bg-primary rounded-full" 
-                            style={{ width: `${incident.percentage}%` }}
-                          ></div>
-                        </div>
-                        <span className="text-xs text-muted-foreground">{incident.percentage}%</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-lg font-bold">{incident.count}</div>
-                    <div className={`text-xs ${incident.color}`}>
-                      {incident.trend}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Unit Performance */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="h-5 w-5" />
-              Police Unit Performance
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {unitPerformance.map((unit) => (
-                <div key={unit.unit} className="flex items-center justify-between p-3 bg-secondary/20 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
-                      <Shield className="h-4 w-4 text-primary" />
-                    </div>
-                    <div>
-                      <p className="font-medium">{unit.unit}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {unit.incidents} incidents handled
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="flex items-center gap-3">
-                      <div>
-                        <p className="text-sm font-medium">{unit.responseTime}</p>
-                        <p className="text-xs text-muted-foreground">avg response</p>
-                      </div>
-                      <div>
-                        <p className={`text-sm font-bold ${getEfficiencyColor(unit.efficiency)}`}>
-                          {unit.efficiency}%
-                        </p>
-                        <p className="text-xs text-muted-foreground">efficiency</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Performance Summary */}
-      <Card>
-        <CardHeader>
-          <CardTitle>System Performance Summary</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="space-y-3">
-              <h4 className="font-semibold text-safe">Strengths</h4>
-              <ul className="space-y-2 text-sm">
-                <li className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-safe rounded-full"></div>
-                  High resolution rate (94.2%)
-                </li>
-                <li className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-safe rounded-full"></div>
-                  Improved response times
-                </li>
-                <li className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-safe rounded-full"></div>
-                  Reduced theft incidents
-                </li>
-              </ul>
-            </div>
-            
-            <div className="space-y-3">
-              <h4 className="font-semibold text-warning">Areas for Improvement</h4>
-              <ul className="space-y-2 text-sm">
-                <li className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-warning rounded-full"></div>
-                  Kashmir border security
-                </li>
-                <li className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-warning rounded-full"></div>
-                  Adventure route monitoring
-                </li>
-                <li className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-warning rounded-full"></div>
-                  Unit deployment efficiency
-                </li>
-              </ul>
-            </div>
-            
-            <div className="space-y-3">
-              <h4 className="font-semibold text-primary">Recommendations</h4>
-              <ul className="space-y-2 text-sm">
-                <li className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-primary rounded-full"></div>
-                  Increase border patrol units
-                </li>
-                <li className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-primary rounded-full"></div>
-                  Deploy more resources to hotspots
-                </li>
-                <li className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-primary rounded-full"></div>
-                  Enhance training programs
-                </li>
-              </ul>
-            </div>
           </div>
-        </CardContent>
-      </Card>
+
+          <div className="mt-4 text-xs muted">
+            <div className="font-medium">Sources</div>
+            <ul className="list-disc pl-5">
+              <li>Incredible India / Ministry of Tourism official destination pages (seed list).</li>
+            </ul>
+          </div>
+        </aside>
+
+        <section className="md:col-span-2 right-pane space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Map & Layers</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div style={{ height: 520, position: 'relative' }}>
+                <MapContainer
+                  whenCreated={onMapCreated as any}
+                  center={[23.5937, 80.9629]}
+                  zoom={5}
+                  style={{ height: '100%', width: '100%' }}
+                >
+                  <TileLayer
+                    attribution='&copy; OpenStreetMap contributors'
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
+
+                  <LayerGroup>
+                    {places.map(p => (
+                      <Marker key={p.id} position={[p.lat, p.lon]}>
+                        <Popup>
+                          <div>
+                            <div className="font-medium">{p.name}</div>
+                            <div className="text-xs muted">{p.category}</div>
+                            <div className="text-xs">{p.notes}</div>
+                          </div>
+                        </Popup>
+                      </Marker>
+                    ))}
+                  </LayerGroup>
+
+                  <LayerGroup>
+                    {RISK_ZONES.map(z => (
+                      <Circle
+                        key={z.id}
+                        center={[z.lat, z.lon]}
+                        radius={z.radius}
+                        pathOptions={{ color: z.color, fillOpacity: 0.12 }}
+                      />
+                    ))}
+                  </LayerGroup>
+                </MapContainer>
+              </div>
+
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2">
+                <div className="text-sm">
+                  <div className="font-medium">Legend</div>
+                  <div className="text-xs muted">Red: Cliff/Slippery • Amber: Wildlife • Gray: No-network</div>
+                </div>
+                <div className="text-sm">
+                  <div className="font-medium">Heatmap</div>
+                  <div className="text-xs muted">Density computed from trusted places (or simulated real-time).</div>
+                </div>
+                <div className="text-sm">
+                  <div className="font-medium">Risk Zones</div>
+                  <div className="text-xs muted">Replace samples with official hazard polygons for SIH finals.</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Risk Zone Indicators</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <div className="font-medium">Marked as red zones:</div>
+                  <ul className="list-disc pl-5 text-sm">
+                    <li>slippery areas</li>
+                    <li>cliffs</li>
+                    <li>wildlife zones</li>
+                    <li>no-network zones</li>
+                  </ul>
+                </div>
+
+                <div>
+                  <div className="font-medium">Tourist Density Heatmap uses:</div>
+                  <ul className="list-disc pl-5 text-sm">
+                    <li>Temples, forts, waterfalls, hill stations, beaches (trusted, Ministry sources)</li>
+                    <li>Live data channel placeholder — replace with real-time feed (telco / crowdsourced / admin uploads)</li>
+                  </ul>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+      </main>
+
+      <footer className="max-w-7xl mx-auto mt-6 text-xs muted">
+        <div>Seeded from official Ministry of Tourism / Incredible India pages (examples).</div>
+        <div className="mt-2">For SIH finals: replace the risk zone polygons and heatmap data with official hazard maps (GeoJSON) from the Ministry or state disaster management authorities.</div>
+      </footer>
     </div>
   );
 };
+
+export default PoliceAnalytics;
