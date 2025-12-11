@@ -23,8 +23,8 @@ interface PoliceSidebarProps {
 
 const menuItems = [
   { id: 'monitoring', title: 'Real-time Monitoring', icon: Radar },
-  { id: 'fir', title: 'Auto FIR Generation', icon: FileText },
-  { id: 'sos', title: 'SOS Tracking', icon: ScanLine },
+  { id: 'fir', title: 'RangerManagement', icon: FileText },
+  { id: 'sos', title: 'RiskZone', icon: ScanLine },
   { id: 'analytics', title: 'Analytics', icon: BarChart3 },
 ];
 

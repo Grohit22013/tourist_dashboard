@@ -1,10 +1,12 @@
-import React, { useEffect, useState } from "react";
+'use client';
+
+import React, { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useWebSocket } from "@/context/WebSocketContext";
 import GarudaMap, { MarkerType } from "./GarudaMap";
 
-import { MapPin, Phone, Menu, X } from "lucide-react";
+import { MapPin, Phone, Menu, X, Mic, StopCircle, Send, Play } from "lucide-react";
 import getLocationName from "@/functions/Location";
 
 /* ------------------------ Distance Utility ------------------------ */
@@ -62,12 +64,16 @@ const loadResqrsFromStorage = (): Record<string, any> => {
   }
 };
 
-/* -------------------- Translation Config (free fallback) --------------------
-   Using MyMemory (https://mymemory.translated.net/) — free public API.
-   Pros: No API key required. Cons: rate-limited, less accurate than paid services.
-   If you want better quality later, we can swap to Google/DeepL with an API key.
+/* -------------------- Translator Config (Switched to MyMemory public API) -------------------- */
+/*
+  Using MyMemory public translation endpoint for lightweight translations:
+  GET https://api.mymemory.translated.net/get?q={text}&langpair={source}|{target}
+  Note: MyMemory has usage limits and quality isn't enterprise grade — replace with your paid provider for production.
 */
-const TRANSLATION_PROVIDER = "mymemory"; // only provider implemented here
+const MYMEMORY_ENDPOINT = "https://api.mymemory.translated.net/get";
+
+/* -------------------- Helpers -------------------- */
+const genRandom = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 /* ------------------------ Component ------------------------ */
 export const PoliceMonitoring: React.FC = () => {
@@ -97,16 +103,33 @@ export const PoliceMonitoring: React.FC = () => {
     selectedAlert: any | null;
   }>({ alerts: null, resqrs: null, selectedAlert: null });
 
+  /* Recording / transcription refs and state */
+  const recognitionRef = useRef<Record<string, any>>({});
+  const mediaRecorderRef = useRef<Record<string, MediaRecorder | null>>({});
+  const mediaChunksRef = useRef<Record<string, Blob[]>>({});
+  const mediaStreamsRef = useRef<Record<string, MediaStream | null>>({});
+
+  const [recordingFor, setRecordingFor] = useState<string | null>(null);
+  const [transcripts, setTranscripts] = useState<Record<string, string>>({});
+  const [audioBlobs, setAudioBlobs] = useState<Record<string, Blob | null>>({});
+  const [isSpeechAPIAvailable, setIsSpeechAPIAvailable] = useState<boolean>(false);
+
   /* ---- persisted load ---- */
   useEffect(() => {
     const persistedAlerts = loadAlertsFromStorage();
     const persistedResqrs = loadResqrsFromStorage();
 
-    setActiveAlerts(persistedAlerts);
+    // ensure sentMessages array exists
+    const normalized = persistedAlerts.map((a: any) => ({ ...a, sentMessages: a.sentMessages ?? [] }));
+
+    setActiveAlerts(normalized);
     setResqrs(persistedResqrs);
 
-    // store originals on mount (for revert)
-    setOrigState({ alerts: persistedAlerts, resqrs: persistedResqrs, selectedAlert: null });
+    setOrigState({ alerts: normalized, resqrs: persistedResqrs, selectedAlert: null });
+
+    // check SpeechRecognition support
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    setIsSpeechAPIAvailable(!!SpeechRecognition);
   }, []);
 
   useEffect(() => {
@@ -141,6 +164,7 @@ export const PoliceMonitoring: React.FC = () => {
             lon,
             locationName: location?.display_name || "Unknown",
             ticket_status: "inlist",
+            sentMessages: [],
           };
 
           setActiveAlerts((prev) => [...prev, newAlert]);
@@ -219,60 +243,57 @@ export const PoliceMonitoring: React.FC = () => {
 
   /* ---- Clear all data ---- */
   const handleClearData = () => {
+    if (recordingFor) stopRecording(recordingFor);
     localStorage.removeItem(ALERTS_STORAGE_KEY);
     localStorage.removeItem(RESQRS_STORAGE_KEY);
     setActiveAlerts([]);
     setResqrs({});
     setSelectedAlert(null);
     setOrigState({ alerts: null, resqrs: null, selectedAlert: null });
+    setTranscripts({});
+    setAudioBlobs({});
   };
 
   /* ---------------- UI State ---------------- */
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"alerts" | "map">("alerts");
+  const [mapInteractionEnabled, setMapInteractionEnabled] = useState(true);
 
   /* ---------------- Translation State ---------------- */
-  const [targetLang, setTargetLang] = useState<string>("hi"); // default Hindi
+  const [targetLang, setTargetLang] = useState<string>("hi");
   const [translatingPage, setTranslatingPage] = useState(false);
   const [translateError, setTranslateError] = useState<string | null>(null);
 
-  /* ---------------- Translation helpers (MyMemory free API) ----------------
-     MyMemory endpoint example:
-       GET https://api.mymemory.translated.net/get?q=Hello%20world!&langpair=en|it
-     Notes:
-       - It's free and doesn't require a key, but it's rate-limited and quality varies.
-       - We assume source is 'en' or best-effort; MyMemory doesn't provide a robust auto-detect in the public API.
-  --------------------------------------------------------------------------*/
-
-  const translateSingleMyMemory = async (text: string, target: string) => {
+  /* ---------------- Translation helpers (MyMemory) ---------------- */
+  // Helper to call MyMemory public API. NOTE: quality and limits apply — swap for paid provider in prod.
+  const translateSingle = async (text: string, target: string) => {
     if (!text) return "";
-    if (!target || target === "auto") {
-      // auto not supported by this simple free fallback
-      throw new Error("Auto-detect not supported by this free translation provider. Choose a specific language.");
-    }
+    // MyMemory needs a source|target pair. We'll default source to 'en' for now.
+    // If user selects 'auto', assume 'en' -> target.
+    const tgt = target === "auto" ? "hi" : target;
+    const source = "en";
+    const url = `${MYMEMORY_ENDPOINT}?q=${encodeURIComponent(text)}&langpair=${encodeURIComponent(`${source}|${tgt}`)}`;
 
-    // MyMemory requires langpair like en|hi. We'll pass 'en|target' — if original isn't English, results can still work sometimes.
-    const q = encodeURIComponent(text);
-    const langpair = `en|${encodeURIComponent(target)}`;
-    const url = `https://api.mymemory.translated.net/get?q=${q}&langpair=${langpair}`;
-
-    const resp = await fetch(url);
-    if (!resp.ok) {
-      const txt = await resp.text();
-      throw new Error(`Translation provider error ${resp.status}: ${txt}`);
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) {
+        const t = await resp.text();
+        throw new Error(`Translate API error ${resp.status}: ${t}`);
+      }
+      const js = await resp.json();
+      // MyMemory returns responseData.translatedText
+      return js?.responseData?.translatedText ?? "";
+    } catch (e) {
+      console.error("MyMemory translate error:", e);
+      // fallback: return original text
+      return text;
     }
-    const js = await resp.json();
-    // js.responseData.translatedText often contains the translated text.
-    const translated = js?.responseData?.translatedText ?? "";
-    return translated;
   };
 
-  // Translate full page: alerts array, resqrs mapping, selectedAlert
   const translateFullPage = async (lang: string) => {
     setTranslateError(null);
     setTranslatingPage(true);
 
-    // Save originals if not already saved
     setOrigState((s) => {
       if (!s.alerts || !s.resqrs) {
         return { alerts: s.alerts ?? activeAlerts, resqrs: s.resqrs ?? resqrs, selectedAlert: s.selectedAlert ?? selectedAlert };
@@ -281,40 +302,30 @@ export const PoliceMonitoring: React.FC = () => {
     });
 
     try {
-      // Basic validation
-      if (lang === "auto") {
-        setTranslateError("Auto-detect not supported by the free provider. Choose a specific language.");
-        setTranslatingPage(false);
-        return;
-      }
-
-      // Translate alerts (names + locationName)
       const alertsPromises = activeAlerts.map(async (a) => {
         const [nameT, locT] = await Promise.all([
-          translateSingleMyMemory(String(a.name || ""), lang).catch(() => a.name),
-          translateSingleMyMemory(String(a.locationName || ""), lang).catch(() => a.locationName),
+          translateSingle(String(a.name || ""), lang).catch(() => a.name),
+          translateSingle(String(a.locationName || ""), lang).catch(() => a.locationName),
         ]);
         return { ...a, name: nameT || a.name, locationName: locT || a.locationName };
       });
 
-      // Translate resqrs (rname and status)
       const resqIds = Object.keys(resqrs);
       const resqPromises = resqIds.map(async (id) => {
         const r = resqrs[id];
         const [rnameT, statusT] = await Promise.all([
-          translateSingleMyMemory(String(r.rname || ""), lang).catch(() => r.rname),
-          translateSingleMyMemory(String(r.status || ""), lang).catch(() => r.status),
+          translateSingle(String(r.rname || ""), lang).catch(() => r.rname),
+          translateSingle(String(r.status || ""), lang).catch(() => r.status),
         ]);
         return [id, { ...r, rname: rnameT || r.rname, status: statusT || r.status }];
       });
 
-      // Translate selected alert details as well (if selected)
       let selectedTranslated = null;
       if (selectedAlert) {
         const [sname, sloc, sstat] = await Promise.all([
-          translateSingleMyMemory(String(selectedAlert.name || ""), lang).catch(() => selectedAlert.name),
-          translateSingleMyMemory(String(selectedAlert.locationName || ""), lang).catch(() => selectedAlert.locationName),
-          translateSingleMyMemory(String(selectedAlert.ticket_status || "inlist"), lang).catch(() => selectedAlert.ticket_status),
+          translateSingle(String(selectedAlert.name || ""), lang).catch(() => selectedAlert.name),
+          translateSingle(String(selectedAlert.locationName || ""), lang).catch(() => selectedAlert.locationName),
+          translateSingle(String(selectedAlert.ticket_status || "inlist"), lang).catch(() => selectedAlert.ticket_status),
         ]);
         selectedTranslated = {
           ...selectedAlert,
@@ -324,13 +335,11 @@ export const PoliceMonitoring: React.FC = () => {
         };
       }
 
-      // await all
       const alertsTranslated = await Promise.all(alertsPromises);
       const resqArr = await Promise.all(resqPromises);
       const resqMapped: Record<string, any> = {};
       resqArr.forEach(([id, val]: any) => (resqMapped[id] = val));
 
-      // set states
       setActiveAlerts(alertsTranslated);
       setResqrs(resqMapped);
       if (selectedTranslated) setSelectedAlert(selectedTranslated);
@@ -342,7 +351,6 @@ export const PoliceMonitoring: React.FC = () => {
     }
   };
 
-  // revert to original (if origState saved)
   const revertTranslation = () => {
     if (origState.alerts) setActiveAlerts(origState.alerts);
     if (origState.resqrs) setResqrs(origState.resqrs);
@@ -351,23 +359,195 @@ export const PoliceMonitoring: React.FC = () => {
     setTranslatingPage(false);
   };
 
-  /* left/right pane heights so each scrolls separately */
-  const topOffset = 88; // header + padding; adjust if header height changes
+  /* ---------------- Recording helpers ---------------- */
+
+  const startRecording = async (alertId: string) => {
+    // stop any other recording first
+    if (recordingFor && recordingFor !== alertId) {
+      await stopRecording(recordingFor);
+    }
+
+    setTranscripts((t) => ({ ...t, [alertId]: "" }));
+    setAudioBlobs((a) => ({ ...a, [alertId]: null }));
+    setRecordingFor(alertId);
+
+    // SpeechRecognition
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      try {
+        const rec = new SpeechRecognition();
+        rec.lang = "en-IN";
+        rec.interimResults = true;
+        rec.maxAlternatives = 1;
+
+        rec.onresult = (ev: any) => {
+          let interim = "";
+          let final = "";
+          for (let i = 0; i < ev.results.length; i++) {
+            const res = ev.results[i];
+            if (res.isFinal) final += res[0].transcript + " ";
+            else interim += res[0].transcript + " ";
+          }
+          setTranscripts((t) => ({ ...t, [alertId]: (t[alertId] ? t[alertId] + " " : "") + final + interim }));
+        };
+
+        rec.onerror = (e: any) => {
+          console.warn("SpeechRecognition error:", e);
+        };
+
+        rec.onend = () => {
+          // keep transcript; recordingFor is only cleared when stopRecording called
+        };
+
+        rec.start();
+        recognitionRef.current[alertId] = rec;
+      } catch (e) {
+        console.warn("SpeechRecognition failed to start:", e);
+      }
+    }
+
+    // MediaRecorder for audio blob
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaStreamsRef.current[alertId] = stream;
+        const mr = new MediaRecorder(stream);
+        mediaRecorderRef.current[alertId] = mr;
+        mediaChunksRef.current[alertId] = [];
+
+        mr.ondataavailable = (ev) => {
+          if (ev.data && ev.data.size > 0) mediaChunksRef.current[alertId].push(ev.data);
+        };
+
+        mr.onstop = () => {
+          const chunks = mediaChunksRef.current[alertId] || [];
+          const blob = new Blob(chunks, { type: "audio/webm" });
+          setAudioBlobs((a) => ({ ...a, [alertId]: blob }));
+          // stop tracks
+          const s = mediaStreamsRef.current[alertId];
+          if (s) s.getTracks().forEach((t) => t.stop());
+          mediaStreamsRef.current[alertId] = null;
+          mediaRecorderRef.current[alertId] = null;
+          mediaChunksRef.current[alertId] = [];
+        };
+
+        mr.start();
+      } catch (e) {
+        console.warn("MediaRecorder error or permission denied:", e);
+      }
+    }
+  };
+
+  const stopRecording = async (alertId: string) => {
+    // stop SpeechRecognition
+    const rec = recognitionRef.current[alertId];
+    if (rec) {
+      try {
+        rec.stop();
+      } catch (e) {
+        // ignore
+      }
+      recognitionRef.current[alertId] = null;
+    }
+
+    // stop MediaRecorder
+    const mr = mediaRecorderRef.current[alertId];
+    if (mr && mr.state !== "inactive") {
+      try {
+        mr.stop();
+      } catch (e) {
+        console.warn("Error stopping MediaRecorder", e);
+      }
+    } else {
+      const s = mediaStreamsRef.current[alertId];
+      if (s) {
+        s.getTracks().forEach((t) => t.stop());
+        mediaStreamsRef.current[alertId] = null;
+      }
+    }
+
+    setRecordingFor((cur) => (cur === alertId ? null : cur));
+  };
+
+  const sendTranscriptToAlert = (alertId: string) => {
+    const text = (transcripts[alertId] || "").trim();
+    const audio = audioBlobs[alertId] ?? null;
+
+    if (!text && !audio) {
+      alert("No recorded audio or transcript to send for this alert.");
+      return;
+    }
+
+    setActiveAlerts((prev) =>
+      prev.map((a) =>
+        a.id === alertId
+          ? {
+              ...a,
+              sentMessages: [
+                ...(a.sentMessages ?? []),
+                {
+                  id: genRandom(),
+                  text: text || null,
+                  audioPresent: !!audio,
+                  timestamp: new Date().toISOString(),
+                },
+              ],
+            }
+          : a
+      )
+    );
+
+    // Optionally upload audio blob to server here. Placeholder:
+    // if (audio) { uploadAudio(alertId, audio); }
+
+    // clear local buffers (optional)
+    setTranscripts((t) => ({ ...t, [alertId]: "" }));
+    setAudioBlobs((a) => ({ ...a, [alertId]: null }));
+
+    alert("Transcript/audio attached to the alert (local). Replace with server call as needed.");
+  };
+
+  const playRecordedAudio = (alertId: string) => {
+    const blob = audioBlobs[alertId];
+    if (blob) {
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.play();
+      return;
+    }
+
+    // also check if a previously sent message has audio (we only store boolean for sent messages here)
+    alert("No recorded audio for this alert.");
+  };
+
+  /* left/right pane height so each scrolls separately */
+  const topOffset = 88;
   const paneMaxHeight = `calc(100vh - ${topOffset}px)`;
 
   /* ------------------------ JSX ------------------------ */
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
       <style>{`
+        :root{
+          --tourism-teal: #059669;
+          --card-radius: 14px;
+          --card-shadow: 0 10px 30px rgba(2,6,23,0.06);
+        }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
-        .app-header { background: linear-gradient(90deg, rgba(255,255,255,0.96), rgba(246,249,255,0.96)); }
-        .card-surface { box-shadow: 0 6px 18px rgba(15,23,42,0.04); border-radius: 12px; }
-        .scroll-hint { height: 10px; background: linear-gradient(180deg, rgba(15,23,42,0), rgba(15,23,42,0.03)); border-radius: 0 0 8px 8px; }
+        .app-header { background: linear-gradient(90deg, rgba(255,255,255,0.98), rgba(250,250,255,0.98)); backdrop-filter: blur(4px); }
+        .card-surface { box-shadow: var(--card-shadow); border-radius: var(--card-radius); }
+        .hero-bg { background: linear-gradient(135deg, rgba(5,150,105,0.04), rgba(249,115,22,0.02)); border-radius: 12px; }
+        .left-card { border-left: 4px solid var(--tourism-teal); }
+        .muted { color: #6b7280; }
+        .scroll-hint { height: 10px; background: linear-gradient(180deg, rgba(2,6,23,0), rgba(2,6,23,0.02)); border-radius: 0 0 8px 8px; }
         .alerts-aside { position: sticky; top: 16px; align-self: start; z-index: 10; }
         .right-pane { position: sticky; top: 16px; align-self: start; z-index: 5; }
+        .chip { background: rgba(5,150,105,0.1); color: var(--tourism-teal); padding: 6px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+        .title-accent { color: var(--tourism-teal); }
       `}</style>
 
+      {/* Header */}
       <header className="w-full app-header shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -380,13 +560,13 @@ export const PoliceMonitoring: React.FC = () => {
             </button>
 
             <div className="flex flex-col leading-tight">
-              <span className="text-lg font-semibold text-slate-800">Yatra Raksha</span>
-              <span className="text-xs text-slate-500">Police Monitoring • Live</span>
+              <span className="text-lg font-semibold title-accent">Yatra Raksha</span>
+              <span className="text-xs muted">Tourism Safety • Live Monitoring</span>
             </div>
           </div>
 
           <div className="hidden md:flex items-center gap-3">
-            <Button size="sm" variant="ghost">Dashboard</Button>
+            <Button size="sm" variant="ghost">Overview</Button>
             <Button size="sm" variant="ghost">Operations</Button>
             <Button size="sm" variant="outline" onClick={handleClearData}>Reset</Button>
           </div>
@@ -394,13 +574,13 @@ export const PoliceMonitoring: React.FC = () => {
           <div className="flex items-center gap-2 md:hidden">
             <button
               onClick={() => setActiveTab("alerts")}
-              className={`px-3 py-1 rounded-md text-xs font-medium ${activeTab === "alerts" ? "bg-sky-600 text-white" : "bg-white border"}`}
+              className={`px-3 py-1 rounded-md text-xs font-medium ${activeTab === "alerts" ? "bg-teal-600 text-white" : "bg-white border"}`}
             >
               Alerts
             </button>
             <button
               onClick={() => setActiveTab("map")}
-              className={`px-3 py-1 rounded-md text-xs font-medium ${activeTab === "map" ? "bg-sky-600 text-white" : "bg-white border"}`}
+              className={`px-3 py-1 rounded-md text-xs font-medium ${activeTab === "map" ? "bg-teal-600 text-white" : "bg-white border"}`}
             >
               Map
             </button>
@@ -408,20 +588,23 @@ export const PoliceMonitoring: React.FC = () => {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 py-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
-          {/* LEFT: alerts (independent scroll) */}
+      <main className="max-w-7xl mx-auto px-4 py-6 hero-bg">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+          {/* LEFT: alerts */}
           <aside className="col-span-1 alerts-aside" style={{ maxHeight: paneMaxHeight }}>
-            <div className="space-y-4 overflow-auto no-scrollbar rounded-lg card-surface px-3 py-3" style={{ maxHeight: paneMaxHeight }}>
+            <div className="space-y-4 overflow-auto no-scrollbar card-surface px-4 py-4 bg-white left-card" style={{ maxHeight: paneMaxHeight }}>
               <div className="flex justify-between items-center">
-                <h2 className="text-xl font-semibold text-slate-800">🛟 Active Alerts</h2>
-                {activeAlerts.length > 0 && (
-                  <Button size="sm" variant="outline" onClick={handleClearData} className="text-xs">Clear</Button>
-                )}
+                <h2 className="text-xl font-semibold title-accent">🧭 Active Alerts</h2>
+                <div className="flex items-center gap-2">
+                  <div className="chip">Tourism</div>
+                  {activeAlerts.length > 0 && (
+                    <Button size="sm" variant="outline" onClick={handleClearData} className="text-xs">Clear</Button>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-3">
-                {activeAlerts.length === 0 && <p className="text-sm text-slate-500">No active alerts yet.</p>}
+                {activeAlerts.length === 0 && <p className="text-sm muted">No active alerts — visitors will appear here when they request help.</p>}
 
                 {activeAlerts.map((a) => (
                   <Card key={a.id} className="border shadow-sm">
@@ -429,9 +612,50 @@ export const PoliceMonitoring: React.FC = () => {
                       <CardTitle className="text-sm text-slate-800">{a.name}</CardTitle>
                     </CardHeader>
 
-                    <CardContent className="text-xs space-y-1">
+                    <CardContent className="text-sm space-y-2">
                       <p className="text-slate-600">{a.locationName}</p>
-                      <p className="text-slate-400">Lat: {a.lat}, Lon: {a.lon}</p>
+                      <p className="text-slate-400 text-xs">Lat: {a.lat}, Lon: {a.lon}</p>
+
+                      {/* Microphone / Transcript UI */}
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center gap-2">
+                          {recordingFor === a.id ? (
+                            <Button size="sm" className="bg-red-500 text-white" onClick={() => stopRecording(a.id)}>
+                              <StopCircle className="w-4 h-4 mr-2" /> Stop
+                            </Button>
+                          ) : (
+                            <Button size="sm" variant="default" onClick={() => startRecording(a.id)}>
+                              <Mic className="w-4 h-4 mr-2" /> Record
+                            </Button>
+                          )}
+
+                          <Button size="sm" variant="outline" onClick={() => playRecordedAudio(a.id)}>
+                            <Play className="w-4 h-4 mr-2" /> Play
+                          </Button>
+
+                          <Button size="sm" variant="ghost" onClick={() => sendTranscriptToAlert(a.id)}>
+                            <Send className="w-4 h-4 mr-2" /> Send
+                          </Button>
+                        </div>
+
+                        <div className="text-xs text-slate-600 p-2 border rounded min-h-[48px]">
+                          {transcripts[a.id] ? transcripts[a.id] : <span className="text-muted">Transcript will appear here when recording...</span>}
+                        </div>
+
+                        {/* show sent messages if any */}
+                        {a.sentMessages && a.sentMessages.length > 0 && (
+                          <div className="text-xs">
+                            <div className="font-medium">Sent messages</div>
+                            <ul className="list-disc pl-5">
+                              {a.sentMessages.map((m: any) => (
+                                <li key={m.id}>
+                                  <div>{m.text ?? "(audio)"} — <span className="text-muted text-xs">{new Date(m.timestamp).toLocaleString()}</span></div>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
 
                       <Button size="sm" className="mt-2 w-full" onClick={() => { setSelectedAlert(a); setActiveTab("map"); }}>
                         View
@@ -443,16 +667,13 @@ export const PoliceMonitoring: React.FC = () => {
             </div>
           </aside>
 
-          {/* RIGHT: map + details (independent scroll) */}
+          {/* RIGHT: map + details */}
           <section className="md:col-span-2 right-pane" style={{ maxHeight: paneMaxHeight }}>
             <div className="mb-4 flex items-center justify-between">
-              
+              <div className="flex items-center gap-4">
+                <div className="text-sm muted">Teams: {Object.keys(resqrs).length}</div>
 
-              <div className="flex items-center gap-3">
-                <div className="text-sm text-slate-500">Teams: {Object.keys(resqrs).length}</div>
-
-                {/* Translate page controls */}
-                <div className="flex items-center gap-2 ml-3">
+                <div className="flex items-center gap-2 ml-2">
                   <select value={targetLang} onChange={(e) => setTargetLang(e.target.value)} className="px-2 py-1 border rounded text-sm">
                     <option value="hi">Hindi</option>
                     <option value="mr">Marathi</option>
@@ -465,15 +686,10 @@ export const PoliceMonitoring: React.FC = () => {
                     <option value="es">Spanish</option>
                     <option value="fr">French</option>
                     <option value="ar">Arabic</option>
-                    <option value="auto">Auto-detect (NOT supported in free fallback)</option>
+                    <option value="auto">Auto-detect (defaults to Hindi)</option>
                   </select>
 
-                  <Button
-                    size="sm"
-                    variant="default"
-                    onClick={() => translateFullPage(targetLang)}
-                    disabled={translatingPage}
-                  >
+                  <Button size="sm" variant="default" onClick={() => translateFullPage(targetLang)} disabled={translatingPage}>
                     {translatingPage ? "Translating..." : "Translate Page"}
                   </Button>
 
@@ -486,15 +702,15 @@ export const PoliceMonitoring: React.FC = () => {
 
             {translateError && <div className="mx-4 mb-2 text-sm text-red-600">{translateError}</div>}
 
-            <div className="rounded-lg border overflow-auto bg-white shadow-sm card-surface" style={{ maxHeight: `calc(${paneMaxHeight} - 64px)` }}>
+            <div className="rounded-lg border overflow-auto bg-white shadow-sm card-surface px-4 py-4" style={{ maxHeight: `calc(${paneMaxHeight} - 64px)` }}>
               {!selectedAlert ? (
-                <div className="text-center text-sm text-slate-500 mt-10 p-8">Select an alert from the left</div>
+                <div className="text-center text-sm muted mt-10 p-8">Select an alert from the left to view map & details</div>
               ) : (
-                <div className="p-4 space-y-4">
+                <div className="space-y-6">
                   <Card>
                     <CardHeader>
                       <CardTitle className="text-lg flex gap-2 items-center text-slate-800">
-                        <MapPin className="w-4 h-4 text-sky-600" /> {selectedAlert.locationName}
+                        <MapPin className="w-4 h-4 text-teal-600" /> {selectedAlert.locationName}
                       </CardTitle>
                     </CardHeader>
 
@@ -504,7 +720,7 @@ export const PoliceMonitoring: React.FC = () => {
                         <p><strong>Name:</strong> {selectedAlert.name}</p>
                         <p className="flex items-center gap-1">
                           <Phone className="w-3 h-3 text-slate-500" />
-                          <a href={`tel:${selectedAlert.phone}`} className="text-sky-600 underline">{selectedAlert.phone}</a>
+                          <a href={`tel:${selectedAlert.phone}`} className="text-teal-600 underline">{selectedAlert.phone}</a>
                         </p>
                         <p><strong>Coordinates:</strong> {selectedAlert.lat}, {selectedAlert.lon}</p>
                         <p><strong>Status:</strong> <span className="text-slate-600">{selectedAlert.ticket_status ?? "inlist"}</span></p>
@@ -512,23 +728,19 @@ export const PoliceMonitoring: React.FC = () => {
 
                       {/* Map */}
                       <div className="rounded-lg border overflow-hidden">
-                        <div className={`${activeTab === "map" ? "block" : "hidden"} md:block`}>
-                          <div style={{ height: 420, position: "relative" }}>
-                            <GarudaMap
-                              center={[selectedAlert.lat, selectedAlert.lon]}
-                              zoom={14}
-                              height={420}
-                              markers={[
-                                { id: "alertMarker", position: [selectedAlert.lat, selectedAlert.lon], popup: selectedAlert.locationName, type: "alert" },
-                                ...resqrsMarkers,
-                              ]}
-                              // if your GarudaMap accepts interaction props, keep them; otherwise it will ignore them
-                              dragging={true}
-                              scrollWheelZoom={true}
-                              doubleClickZoom={true}
-                              touchZoom={true}
-                            />
-                          </div>
+                        <div style={{ height: 420, position: "relative" }}>
+                          <GarudaMap
+                            center={[selectedAlert.lat, selectedAlert.lon]}
+                            zoom={14}
+                            height={420}
+                            markers={[
+                              { id: "alertMarker", position: [selectedAlert.lat, selectedAlert.lon], popup: selectedAlert.locationName, type: "alert" },
+                              ...resqrsMarkers,
+                            ]}
+                            {...(mapInteractionEnabled
+                              ? { dragging: true, scrollWheelZoom: true, doubleClickZoom: true, touchZoom: true }
+                              : { dragging: true, scrollWheelZoom: true, doubleClickZoom: true, touchZoom: true })}
+                          />
                         </div>
                       </div>
 
@@ -556,8 +768,7 @@ export const PoliceMonitoring: React.FC = () => {
                     </CardContent>
                   </Card>
 
-                  {/* spacer so right pane has breathing room while scrolling */}
-                  <div style={{ height: 48 }} />
+                  <div style={{ height: 24 }} />
                 </div>
               )}
             </div>
