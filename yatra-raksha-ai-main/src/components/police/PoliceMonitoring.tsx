@@ -1,917 +1,527 @@
-// import React, { useEffect, useMemo, useState } from "react";
+
+
+// import React, { useEffect, useState, useMemo } from "react";
 // import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-// import { Badge } from "@/components/ui/badge";
 // import { Button } from "@/components/ui/button";
 // import { useWebSocket } from "@/context/WebSocketContext";
+// import GarudaMap, { MarkerType } from "./GarudaMap";
+// import { MapPin, Phone } from "lucide-react";
+// import getLocationName from "@/functions/Location";
 
-// import {
-//   Radar,
-//   MapPin,
-//   Users,
-//   AlertCircle,
-//   Clock,
-//   Activity,
-//   ScanLine,
-//   RefreshCw,
-//   Zap,
-//   Phone,
-//   Crosshair
-// } from "lucide-react";
-// import {
-//   Dialog,
-//   DialogContent,
-//   DialogDescription,
-//   DialogHeader,
-//   DialogTitle,
-//   DialogOverlay, // added
-// } from "@/components/ui/dialog";
-// import { Separator } from "@/components/ui/separator";
+// // --- Haversine Distance (km) ---
+// const distanceKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+//   const R = 6371;
+//   const dLat = ((lat2 - lat1) * Math.PI) / 180;
+//   const dLon = ((lon2 - lon1) * Math.PI) / 180;
+//   const a =
+//     Math.sin(dLat / 2) ** 2 +
+//     Math.cos(lat1 * Math.PI / 180) *
+//       Math.cos(lat2 * Math.PI / 180) *
+//       Math.sin(dLon / 2) ** 2;
 
-// import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
-// import L from "leaflet";
-// import "leaflet/dist/leaflet.css";
-
-// // --------- Mock Data ---------
-// const mockActiveCases = [
-//   { id: "SOS-001", type: "Mobile App SOS", tourist: "ROHIT", location: "Hyderabad, TS (Geofenced)", time: "Just now", priority: "critical" },
-//   { id: "SOS-002", type: "Emergency SOS", tourist: "Raj Patel", location: "Manali Hills, HP", time: "2 min ago", priority: "critical" },
-//   { id: "SOS-003", type: "Medical Emergency", tourist: "Anna Johnson", location: "Trekking Route, UK", time: "5 min ago", priority: "critical" },
-//   { id: "GEO-004", type: "Restricted Area Entry", tourist: "Mike Brown", location: "Border Zone, J&K", time: "8 min ago", priority: "high" },
-//   { id: "OFF-005", type: "Device Offline", tourist: "Lisa Chen", location: "Last: Delhi Airport", time: "15 min ago", priority: "medium" },
-// ];
-
-// const mockHotspots = [
-//   { location: "Kashmir Valley", incidents: 12, riskLevel: "critical", activeUnits: 8 },
-//   { location: "Manali-Leh Highway", incidents: 8, riskLevel: "high", activeUnits: 5 },
-//   { location: "Goa Beach Areas", incidents: 15, riskLevel: "medium", activeUnits: 12 },
-//   { location: "Rajasthan Desert", incidents: 6, riskLevel: "medium", activeUnits: 4 },
-// ];
-
-// // --------- SOS Seed (from user request) ---------
-// const SOS_NAME = "ROHIT";
-// const SOS_PHONE = "+91 9841053223"; // updated number
-// const SOS_COORDS = { lat: 17.3616, lng: 78.4747 }; // Hyderabad
-
-// // Leaflet icon fix (default images are not bundled in many setups)
-// const sosIcon = new L.DivIcon({
-//   html: `
-//     <div class="relative">
-//       <span class="block w-4 h-4 rounded-full bg-red-600 shadow"></span>
-//       <span class="absolute -inset-2 rounded-full animate-ping bg-red-500/50"></span>
-//     </div>
-//   `,
-//   className: "",
-//   iconSize: [16, 16],
-//   iconAnchor: [8, 8],
-// });
+//   return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+// };
 
 // export const PoliceMonitoring: React.FC = () => {
-//   const [openSosDialog, setOpenSosDialog] = useState(false); // open on first render (simulate: "once i login")
-//   const [mapKey, setMapKey] = useState(0); // force rerender after modal toggles (avoids Leaflet layout glitches)
-// const ws = useWebSocket();
+//   const ws = useWebSocket();
+
+//   const [activeAlerts, setActiveAlerts] = useState<any[]>([]);
+//   const [selectedAlert, setSelectedAlert] = useState<any | null>(null);
+
+//   // RESQR data format:
+//   // { id: { lat, lon, rname, rid, status } }
+//   const [resqrs, setResqrs] = useState<any>({});
+
+//   /* ---------------------- WEBSOCKET LISTENER ---------------------- */
 //   useEffect(() => {
-//     // Whenever dialog opens/closes, poke the map to recalc size
-//     setTimeout(() => setMapKey((k) => k + 1), 150);
-//   }, [openSosDialog]);
+//     if (!ws) return;
 
-
-//   useEffect(() => {
-//   if (!ws) return;
-
-//   ws.onmessage = (event) => {
-//     try {
+//     ws.onmessage = async (event) => {
 //       const data = JSON.parse(event.data);
 
-//       console.log("From backend:", data);
+//       // --- SOS EVENT ---
+//       if (data.type === "SOS") {
+//         const lat = Number(data.lat);
+//         const lon = Number(data.lon);
 
-//       // Example condition: backend sends { type: "SOS", name: "ROHIT", ... }
-//       if (data.type === "SOS_ALERT") {
-//         setOpenSosDialog(true);      // ⬅ OPEN THE DIALOG
+//         const location = await getLocationName(lat, lon);
+
+//         setActiveAlerts((prev) => [
+//           ...prev,
+//           {
+//             id: crypto.randomUUID(),
+//             name: data.name || "Unknown",
+//             phone: data.phone || "",
+//             lat,
+//             lon,
+//             locationName: location?.display_name || "Unknown",
+//             ticket_status: "inlist",
+//           },
+//         ]);
 //       }
-//     } catch (err) {
-//       console.error("Invalid WS message:", err);
+
+//       // --- RESQR LIVE LOCATION ---
+//       if (data.type === "resqrs") {
+//         setResqrs((prev: any) => ({
+//           ...prev,
+//           [data.id]: {
+//             lat: Number(data.lat),
+//             lon: Number(data.lon),
+//             rname: data.rname,
+//             rid: data.rid,
+//             status: data.status,
+//           },
+//         }));
+//       }
+//     };
+//   }, [ws]);
+
+//   /* ---------------------- SORT RESQRS BY DISTANCE ---------------------- */
+//   const sortedResqrs = useMemo(() => {
+//     if (!selectedAlert) return [];
+
+//     let list = Object.entries(resqrs).map(([id, r]: any) => ({
+//       id,
+//       ...r,
+//       distance: distanceKm(selectedAlert.lat, selectedAlert.lon, r.lat, r.lon),
+//     }));
+
+//     list.sort((a, b) => a.distance - b.distance);
+
+//     // Auto-assign closest available → in-op
+//     if (list.length > 0 && list[0].status === "available") {
+//       list[0].status = "in-op";
 //     }
-//   };
-// }, [ws]);
 
+//     return list;
+//   }, [resqrs, selectedAlert]);
 
-//   const getPriorityColor = (priority: string) => {
-//     switch (priority) {
-//       case "critical":
-//         return "bg-critical text-critical-foreground";
-//       case "high":
-//         return "bg-danger text-danger-foreground";
-//       case "medium":
-//         return "bg-warning text-warning-foreground";
-//       case "low":
-//         return "bg-safe text-safe-foreground";
-//       default:
-//         return "bg-muted text-muted-foreground";
-//     }
-//   };
+//   /* ---------------------- RESQR MAP MARKERS ---------------------- */
+//   const resqrsMarkers: MarkerType[] = Object.entries(resqrs).map(
+//     ([id, r]: any) => ({
+//       id,
+//       position: [r.lat, r.lon],
+//       popup: `${r.rname} (${r.rid})`,
+//       type: "resqr",
+//     })
+//   );
 
-//   const getRiskColor = (risk: string) => {
-//     switch (risk) {
-//       case "critical":
-//         return "text-critical";
-//       case "high":
-//         return "text-danger";
-//       case "medium":
-//         return "text-warning";
-//       case "low":
-//         return "text-safe";
-//       default:
-//         return "text-muted-foreground";
-//     }
-//   };
-
-//   const mapCenter = useMemo(() => [SOS_COORDS.lat, SOS_COORDS.lng] as [number, number], []);
-
-
+//   /* ---------------------- UI ---------------------- */
 //   return (
-//     <div className="space-y-6">
-//       {/* ---- SOS Modal (opens on login) ---- */}
-//       <Dialog open={openSosDialog} onOpenChange={setOpenSosDialog}>
-//         {/* keep the dialog above Leaflet controls */}
-//         <DialogOverlay className="z-[9998]" />
-//         <DialogContent className="max-w-2xl z-[9999]">
-//           <DialogHeader>
-//             <DialogTitle className="flex items-center gap-2">
-//               <ScanLine className="h-5 w-5 text-critical" />
-//               SOS Activated — {SOS_NAME}
-//             </DialogTitle>
-//             <DialogDescription>
-//               Immediate assistance required. Tracking has started and the nearest response units are being notified.
-//             </DialogDescription>
-//           </DialogHeader>
+//     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+//       {/* Left — Alerts List */}
+//       <div className="space-y-4">
+//         <h2 className="text-xl font-bold">🛟 Active Alerts</h2>
 
-//           <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-//             <div className="md:col-span-2 space-y-2">
-//               <div className="flex items-center gap-2 text-sm">
-//                 <Phone className="h-4 w-4 text-muted-foreground" />
-//                 <span className="font-medium">Contact:</span>
-//                 <a href={`tel:${SOS_PHONE.replace(/\s/g, "")}`} className="text-primary underline">
-//                   {SOS_PHONE}
-//                 </a>
-//               </div>
-//               <div className="flex items-center gap-2 text-sm">
-//                 <MapPin className="h-4 w-4 text-muted-foreground" />
-//                 <span className="font-medium">Coordinates:</span>
-//                 <code className="bg-muted/60 rounded px-1 py-0.5 text-xs">
-//                   lat: {SOS_COORDS.lat}, lng: {SOS_COORDS.lng}
-//                 </code>
-//               </div>
+//         {activeAlerts.length === 0 && (
+//           <p className="text-sm text-muted-foreground">No active alerts.</p>
+//         )}
 
-//               <Separator className="my-2" />
+//         {activeAlerts.map((a) => (
+//           <Card key={a.id}>
+//             <CardHeader>
+//               <CardTitle className="text-sm">{a.name}</CardTitle>
+//             </CardHeader>
 
-//               <div className="flex flex-wrap gap-2">
-//                 <Badge className="bg-critical text-critical-foreground">CRITICAL</Badge>
-//                 <Badge variant="outline" className="gap-1">
-//                   <Crosshair className="h-3 w-3" /> Tracking Enabled
-//                 </Badge>
-//                 <Badge variant="secondary" className="gap-1">
-//                   <Users className="h-3 w-3" /> Units Notified
-//                 </Badge>
-//               </div>
+//             <CardContent className="text-xs space-y-1">
+//               <p>{a.locationName}</p>
+//               <p className="text-muted-foreground">
+//                 Lat: {a.lat}, Lon: {a.lon}
+//               </p>
 
-//               <div className="pt-2 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-//                 <div>
-//                   <div className="font-medium text-foreground">Tourist</div>
-//                   {SOS_NAME}
-//                 </div>
-//                 <div>
-//                   <div className="font-medium text-foreground">Source</div>
-//                   Mobile App SOS
-//                 </div>
-//                 <div className="col-span-2">
-//                   <div className="font-medium text-foreground">Nearest Landmark</div>
-//                   Hyderabad, Telangana
-//                 </div>
-//               </div>
-
-//               <div className="flex gap-2 pt-3">
-//                 <Button className="bg-danger hover:bg-danger/90 h-9">Dispatch Unit</Button>
-//                 <Button variant="outline" className="h-9">Call {SOS_NAME}</Button>
-//               </div>
-//             </div>
-
-//             {/* Mini live map inside modal */}
-//             <div className="md:col-span-3">
-//               <div className="rounded-lg overflow-hidden border relative z-0">
-//                 <MapContainer
-//                   key={mapKey}
-//                   center={mapCenter}
-//                   zoom={14}
-//                   scrollWheelZoom={false}
-//                   style={{ height: 260, width: "100%" }}
-//                 >
-//                   <TileLayer
-//                     attribution="&copy; OpenStreetMap contributors"
-//                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-//                   />
-//                   <Marker position={mapCenter} icon={sosIcon}>
-//                     <Popup>
-//                       <div className="text-sm">
-//                         <div className="font-medium">{SOS_NAME} — SOS</div>
-//                         <div>lat: {SOS_COORDS.lat}, lng: {SOS_COORDS.lng}</div>
-//                         <a className="text-primary underline" href={`tel:${SOS_PHONE.replace(/\s/g, "")}`}>
-//                           {SOS_PHONE}
-//                         </a>
-//                       </div>
-//                     </Popup>
-//                   </Marker>
-//                   {/* Visible tracking radius */}
-//                   <Circle center={mapCenter} radius={400} pathOptions={{ color: "red" }} />
-//                 </MapContainer>
-//               </div>
-//             </div>
-//           </div>
-//         </DialogContent>
-//       </Dialog>
-
-//       {/* Emergency Stats */}
-//       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-//         <Card>
-//           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-//             <CardTitle className="text-sm font-medium">Active SOS Alerts</CardTitle>
-//             <ScanLine className="h-4 w-4 text-critical animate-pulse" />
-//           </CardHeader>
-//           <CardContent>
-//             <div className="text-2xl font-bold text-critical">7</div>
-//             <p className="text-xs text-muted-foreground">+3 in last hour</p>
-//           </CardContent>
-//         </Card>
-
-//         <Card>
-//           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-//             <CardTitle className="text-sm font-medium">Police Units Deployed</CardTitle>
-//             <Users className="h-4 w-4 text-primary" />
-//           </CardHeader>
-//           <CardContent>
-//             <div className="text-2xl font-bold text-primary">89</div>
-//             <p className="text-xs text-muted-foreground">Across 12 states</p>
-//           </CardContent>
-//         </Card>
-
-//         <Card>
-//           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-//             <CardTitle className="text-sm font-medium">High-Risk Zones</CardTitle>
-//             <AlertCircle className="h-4 w-4 text-danger" />
-//           </CardHeader>
-//           <CardContent>
-//             <div className="text-2xl font-bold text-danger">15</div>
-//             <p className="text-xs text-muted-foreground">Under surveillance</p>
-//           </CardContent>
-//         </Card>
-
-//         <Card>
-//           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-//             <CardTitle className="text-sm font-medium">Avg Response Time</CardTitle>
-//             <Clock className="h-4 w-4 text-safe" />
-//           </CardHeader>
-//           <CardContent>
-//             <div className="text-2xl font-bold text-safe">3.4min</div>
-//             <p className="text-xs text-muted-foreground">-45s faster today</p>
-//           </CardContent>
-//         </Card>
-//       </div>
-
-//       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-//         {/* Real-time India Map */}
-//         <Card className="lg:row-span-2">
-//           <CardHeader className="flex flex-row items-center justify-between">
-//             <CardTitle className="flex items-center gap-2">
-//               <Radar className="h-5 w-5" />
-//               Garuda Live Surveillance Map
-//             </CardTitle>
-//             <Button variant="outline" size="sm" onClick={() => setMapKey((k) => k + 1)}>
-//               <RefreshCw className="h-4 w-4 mr-2" />
-//               Refresh
-//             </Button>
-//           </CardHeader>
-//           <CardContent>
-//             <div className="rounded-lg overflow-hidden border relative z-0">
-//               <MapContainer
-//                 key={mapKey}
-//                 center={mapCenter}
-//                 zoom={12}
-//                 scrollWheelZoom
-//                 style={{ height: 420, width: "100%" }}
+//               <Button
+//                 size="sm"
+//                 className="mt-2 w-full"
+//                 onClick={() => setSelectedAlert(a)}
 //               >
-//                 <TileLayer
-//                   attribution="&copy; OpenStreetMap contributors"
-//                   url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-//                 />
-//                 {/* SOS Marker (ROHIT) */}
-//                 <Marker position={mapCenter} icon={sosIcon}>
-//                   <Popup>
-//                     <div className="text-sm">
-//                       <div className="font-medium">{SOS_NAME} — SOS</div>
-//                       <div>lat: {SOS_COORDS.lat}, lng: {SOS_COORDS.lng}</div>
-//                       <a className="text-primary underline" href={`tel:${SOS_PHONE.replace(/\s/g, "")}`}>
-//                         {SOS_PHONE}
-//                       </a>
-//                     </div>
-//                   </Popup>
-//                 </Marker>
-//                 <Circle center={mapCenter} radius={600} pathOptions={{ color: "red" }} />
-//               </MapContainer>
-//             </div>
-
-//             {/* Legend */}
-//             <div className="grid grid-cols-3 gap-4 mt-4">
-//               <div className="flex items-center gap-2">
-//                 <div className="w-3 h-3 bg-critical rounded-full animate-pulse"></div>
-//                 <span className="text-xs">SOS Alerts</span>
-//               </div>
-//               <div className="flex items-center gap-2">
-//                 <div className="w-3 h-3 bg-primary rounded-full"></div>
-//                 <span className="text-xs">Police Units</span>
-//               </div>
-//               <div className="flex items-center gap-2">
-//                 <div className="w-3 h-3 bg-danger rounded-full"></div>
-//                 <span className="text-xs">High-Risk Zones</span>
-//               </div>
-//             </div>
-//           </CardContent>
-//         </Card>
-
-//         {/* Active Emergency Cases */}
-//         <Card>
-//           <CardHeader className="flex items-center justify-between">
-//             <CardTitle className="flex items-center gap-2">
-//               <Zap className="h-5 w-5" />
-//               Active Emergency Cases
-//             </CardTitle>
-//             <Badge className="bg-critical text-critical-foreground">
-//               <Activity className="h-3 w-3 mr-1" />
-//               LIVE
-//             </Badge>
-//           </CardHeader>
-//           <CardContent>
-//             <div className="space-y-3">
-//               {mockActiveCases.map((case_) => (
-//                 <div
-//                   key={case_.id}
-//                   className={`p-3 rounded-lg border-l-4 ${
-//                     case_.priority === "critical"
-//                       ? "border-l-critical bg-critical/5"
-//                       : case_.priority === "high"
-//                       ? "border-l-danger bg-danger/5"
-//                       : case_.priority === "medium"
-//                       ? "border-l-warning bg-warning/5"
-//                       : "border-l-safe bg-safe/5"
-//                   }`}
-//                 >
-//                   <div className="flex justify-between items-start mb-2">
-//                     <div>
-//                       <p className="font-medium text-sm">{case_.type}</p>
-//                       <p className="text-xs text-muted-foreground">
-//                         {case_.tourist} - {case_.location}
-//                       </p>
-//                     </div>
-//                     <div className="flex items-center gap-2">
-//                       <Badge className={getPriorityColor(case_.priority)} variant="secondary">
-//                         {case_.priority}
-//                       </Badge>
-//                       <span className="text-xs text-muted-foreground">{case_.time}</span>
-//                     </div>
-//                   </div>
-//                   <div className="flex gap-2">
-//                     <Button size="sm" variant="outline" className="h-7 text-xs">
-//                       View Details
-//                     </Button>
-//                     <Button size="sm" className="h-7 text-xs bg-critical hover:bg-critical/90">
-//                       Dispatch Unit
-//                     </Button>
-//                   </div>
-//                 </div>
-//               ))}
-//             </div>
-//           </CardContent>
-//         </Card>
-
-//         {/* Crime Hotspots */}
-//         <Card>
-//           <CardHeader>
-//             <CardTitle className="flex items-center gap-2">
-//               <MapPin className="h-5 w-5" />
-//               Current Hotspots & Deployments
-//             </CardTitle>
-//           </CardHeader>
-//           <CardContent>
-//             <div className="space-y-4">
-//               {mockHotspots.map((hotspot, index) => (
-//                 <div key={index} className="flex items-center justify-between p-3 bg-secondary/20 rounded-lg">
-//                   <div className="flex items-center gap-3">
-//                     <div className="w-8 h-8 bg-critical/10 rounded-full flex items-center justify-center">
-//                       <MapPin className="h-4 w-4 text-critical" />
-//                     </div>
-//                     <div>
-//                       <p className="font-medium text-sm">{hotspot.location}</p>
-//                       <p className="text-xs text-muted-foreground">{hotspot.incidents} incidents today</p>
-//                     </div>
-//                   </div>
-//                   <div className="text-right">
-//                     <p className={`font-medium text-sm ${getRiskColor(hotspot.riskLevel)}`}>
-//                       {hotspot.riskLevel.toUpperCase()}
-//                     </p>
-//                     <p className="text-xs text-muted-foreground">{hotspot.activeUnits} units active</p>
-//                   </div>
-//                 </div>
-//               ))}
-//             </div>
-//           </CardContent>
-//         </Card>
+//                 View
+//               </Button>
+//             </CardContent>
+//           </Card>
+//         ))}
 //       </div>
 
-//       {/* Quick Action Panel */}
-//       <Card>
-//         <CardHeader>
-//           <CardTitle>Emergency Response Quick Actions</CardTitle>
-//         </CardHeader>
-//         <CardContent>
-//           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-//             <Button className="h-16 bg-critical hover:bg-critical/90 flex-col">
-//               <ScanLine className="h-6 w-6 mb-2" />
-//               <span className="text-sm">Mass Alert</span>
-//             </Button>
-//             <Button className="h-16 bg-danger hover:bg-danger/90 flex-col">
-//               <Users className="h-6 w-6 mb-2" />
-//               <span className="text-sm">Deploy Units</span>
-//             </Button>
-//             <Button className="h-16 bg-warning hover:bg-warning/90 flex-col">
-//               <AlertCircle className="h-6 w-6 mb-2" />
-//               <span className="text-sm">Zone Alert</span>
-//             </Button>
-//             <Button className="h-16 bg-primary hover:bg-primary-hover flex-col">
-//               <Activity className="h-6 w-6 mb-2" />
-//               <span className="text-sm">Status Report</span>
-//             </Button>
+//       {/* Right — Details + Map */}
+//       <div className="md:col-span-2">
+//         {selectedAlert ? (
+//           <Card>
+//             <CardHeader>
+//               <CardTitle className="flex items-center gap-2">
+//                 <MapPin className="w-4 h-4" /> {selectedAlert.locationName}
+//               </CardTitle>
+//             </CardHeader>
+
+//             <CardContent className="space-y-4">
+//               {/* --- DETAILS --- */}
+//               <div className="text-sm space-y-1">
+//                 <p>
+//                   <strong>Name:</strong> {selectedAlert.name}
+//                 </p>
+//                 <p className="flex items-center gap-1">
+//                   <Phone className="w-3 h-3" />
+//                   <a
+//                     href={`tel:${selectedAlert.phone}`}
+//                     className="text-primary underline"
+//                   >
+//                     {selectedAlert.phone}
+//                   </a>
+//                 </p>
+//                 <p>
+//                   <strong>Coordinates:</strong>{" "}
+//                   {selectedAlert.lat}, {selectedAlert.lon}
+//                 </p>
+//               </div>
+
+//               {/* --- MAP --- */}
+//               <div className="rounded-lg overflow-hidden border">
+//                 <GarudaMap
+//                   center={[selectedAlert.lat, selectedAlert.lon]}
+//                   zoom={14}
+//                   height={300}
+//                   markers={[
+//                     {
+//                       id: "alert",
+//                       position: [selectedAlert.lat, selectedAlert.lon],
+//                       popup: selectedAlert.locationName,
+//                       type: "alert",
+//                       radius: 300,
+//                     },
+//                     ...resqrsMarkers,
+//                   ]}
+//                 />
+//               </div>
+
+//               {/* --- RESQR LIST BELOW MAP --- */}
+//               <div>
+//                 <h3 className="font-semibold text-md mt-4 mb-2">
+//                   Nearby Rescue Units (sorted by distance)
+//                 </h3>
+
+//                 <div className="space-y-2">
+//                   {sortedResqrs.map((r: any, index) => {
+//                     const isClosest = index === 0;
+
+//                     return (
+//                       <div
+//                         key={r.id}
+//                         className={`p-3 rounded border text-sm flex justify-between items-center
+//                           ${
+//                             isClosest
+//                               ? "bg-green-900/40 border-green-500"
+//                               : "bg-gray-800 border-gray-700"
+//                           }
+//                         `}
+//                       >
+//                         <div>
+//                           <p>
+//                             <strong>{r.rname}</strong> ({r.rid})
+//                           </p>
+//                           <p className="text-xs text-muted-foreground">
+//                             {r.distance.toFixed(2)} km away
+//                           </p>
+//                         </div>
+
+//                         <span
+//                           className={`px-2 py-1 text-xs rounded ${
+//                             r.status === "available"
+//                               ? "bg-green-500 text-black"
+//                               : r.status === "in-op"
+//                               ? "bg-orange-500 text-black"
+//                               : "bg-red-500 text-black"
+//                           }`}
+//                         >
+//                           {r.status}
+//                         </span>
+//                       </div>
+//                     );
+//                   })}
+//                 </div>
+//               </div>
+//             </CardContent>
+//           </Card>
+//         ) : (
+//           <div className="text-center text-sm text-muted-foreground mt-20">
+//             Select an alert to view details.
 //           </div>
-//         </CardContent>
-//       </Card>
+//         )}
+//       </div>
 //     </div>
 //   );
 // };
 
-
-
 // export default PoliceMonitoring;
 
 
-
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useWebSocket } from "@/context/WebSocketContext";
+import GarudaMap, { MarkerType } from "./GarudaMap";
 
-import {
-  Radar,
-  MapPin,
-  Users,
-  AlertCircle,
-  Clock,
-  Activity,
-  ScanLine,
-  RefreshCw,
-  Zap,
-  Phone,
-  Crosshair,
-} from "lucide-react";
+import { MapPin, Phone } from "lucide-react";
+import getLocationName from "@/functions/Location";
 
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogOverlay,
-} from "@/components/ui/dialog";
+/* ------------------------ Distance Utility ------------------------ */
+const calcDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+  const R = 6371; // km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
 
-import { Separator } from "@/components/ui/separator";
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) ** 2;
 
-import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
 
-/* ---------------- MOCK DATA ---------------- */
-const mockActiveCases = [
-  { id: "SOS-001", type: "Mobile App SOS", tourist: "ROHIT", location: "Hyderabad, TS (Geofenced)", time: "Just now", priority: "critical" },
-  { id: "SOS-002", type: "Emergency SOS", tourist: "Raj Patel", location: "Manali Hills, HP", time: "2 min ago", priority: "critical" },
-  { id: "SOS-003", type: "Medical Emergency", tourist: "Anna Johnson", location: "Trekking Route, UK", time: "5 min ago", priority: "critical" },
-  { id: "GEO-004", type: "Restricted Area Entry", tourist: "Mike Brown", location: "Border Zone, J&K", time: "8 min ago", priority: "high" },
-  { id: "OFF-005", type: "Device Offline", tourist: "Lisa Chen", location: "Last: Delhi Airport", time: "15 min ago", priority: "medium" },
-];
-
-const mockHotspots = [
-  { location: "Kashmir Valley", incidents: 12, riskLevel: "critical", activeUnits: 8 },
-  { location: "Manali-Leh Highway", incidents: 8, riskLevel: "high", activeUnits: 5 },
-  { location: "Goa Beach Areas", incidents: 15, riskLevel: "medium", activeUnits: 12 },
-  { location: "Rajasthan Desert", incidents: 6, riskLevel: "medium", activeUnits: 4 },
-];
-
-/* ---------------- SOS SEED ---------------- */
-const SOS_NAME = "ROHIT";
-const SOS_PHONE = "+91 9841053223";
-const SOS_COORDS = { lat: 17.3616, lng: 78.4747 };
-
-/* ---------------- LEAFLET ICON ---------------- */
-const sosIcon = new L.DivIcon({
-  html: `
-    <div class="relative">
-      <span class="block w-4 h-4 rounded-full bg-red-600 shadow"></span>
-      <span class="absolute -inset-2 rounded-full animate-ping bg-red-500/50"></span>
-    </div>
-  `,
-  className: "",
-  iconSize: [16, 16],
-  iconAnchor: [8, 8],
-});
-
-/* ---------------- COMPONENT ---------------- */
 export const PoliceMonitoring: React.FC = () => {
-  const [openSosDialog, setOpenSosDialog] = useState(false);
-  const [mapKey, setMapKey] = useState(0);
   const ws = useWebSocket();
 
-  /* --- Fix Leaflet resizing when modal opens --- */
-  useEffect(() => {
-    setTimeout(() => setMapKey((k) => k + 1), 200);
-  }, [openSosDialog]);
+  const [activeAlerts, setActiveAlerts] = useState<any[]>([]);
+  const [selectedAlert, setSelectedAlert] = useState<any | null>(null);
 
-  /* --- WebSocket: OPEN modal only when server sends SOS_ALERT --- */
+  const [resqrs, setResqrs] = useState<
+    Record<
+      string,
+      {
+        lat: number;
+        lon: number;
+        rname: string;
+        rid: string;
+        status: string;
+        assigned_operations: string[];
+      }
+    >
+  >({});
+
+  /* ------------------------ WebSocket Listener ------------------------ */
   useEffect(() => {
     if (!ws) return;
 
-    ws.onmessage = (event) => {
+    ws.onmessage = async (event) => {
       try {
         const data = JSON.parse(event.data);
-        console.log("From backend:", data);
 
-        if (data.type === "SOS_ALERT") {
-          setOpenSosDialog(true);
+        /* ---- SOS ALERT ---- */
+        if (data.type === "SOS") {
+          const lat = Number(data.lat);
+          const lon = Number(data.lon);
+          if (!lat || !lon) return;
+
+          const location = await getLocationName(lat, lon);
+
+          const newAlert = {
+            id: crypto.randomUUID(),
+            name: data.name || "Unknown",
+            phone: data.phone || "",
+            lat,
+            lon,
+            locationName: location?.display_name || "Unknown",
+            ticket_status: "inlist",
+          };
+
+          setActiveAlerts((prev) => [...prev, newAlert]);
+        }
+
+        /* ---- RESCUE TEAM STREAM ---- */
+        else if (data.type === "resqrs") {
+          setResqrs((prev) => ({
+            ...prev,
+            [data.id]: {
+              lat: Number(data.lat),
+              lon: Number(data.lon),
+              rname: data.rname,
+              rid: data.rid,
+              status: data.status,
+              assigned_operations: data.assigned_operations || [],
+            },
+          }));
         }
       } catch (err) {
-        console.error("Invalid WS message:", err);
+        console.error("WS error:", err);
       }
     };
   }, [ws]);
 
-  /* ---------------- Small Helpers ---------------- */
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case "critical": return "bg-critical text-critical-foreground";
-      case "high": return "bg-danger text-danger-foreground";
-      case "medium": return "bg-warning text-warning-foreground";
-      default: return "bg-muted text-muted-foreground";
+  /* ---------------- Compute Sorted Rangers + Assignment ---------------- */
+  const getSortedRangers = () => {
+    if (!selectedAlert) return [];
+
+    const { lat: alertLat, lon: alertLon } = selectedAlert;
+
+    let list = Object.values(resqrs).map((r) => ({
+      ...r,
+      distance: calcDistance(alertLat, alertLon, r.lat, r.lon),
+    }));
+
+    // sort nearest → farthest
+    list.sort((a, b) => a.distance - b.distance);
+
+    // assignment logic
+    if (list.length > 0) {
+      const first = list[0];
+      const second = list[1];
+
+      const canAssign =
+        first.status === "available" &&
+        first.assigned_operations.length < 3;
+
+      const forceAssign =
+        second &&
+        first.assigned_operations.length < 3 &&
+        first.distance < second.distance * 0.5;
+
+      if (canAssign || forceAssign) {
+        first.status = "in-op";
+
+        if (!first.assigned_operations.includes(selectedAlert.id)) {
+          first.assigned_operations.push(selectedAlert.id);
+        }
+      }
     }
+
+    return list;
   };
 
-  const getRiskColor = (risk: string) => {
-    switch (risk) {
-      case "critical": return "text-critical";
-      case "high": return "text-danger";
-      case "medium": return "text-warning";
-      default: return "text-muted-foreground";
-    }
-  };
+  /* ---------------- Map Markers ---------------- */
+  const resqrsMarkers: MarkerType[] = Object.entries(resqrs).map(([id, r]) => ({
+    id,
+    position: [r.lat, r.lon],
+    popup: `${r.rname} (${r.rid})`,
+    type: "resqr",
+  }));
 
-  const mapCenter = useMemo(() => [SOS_COORDS.lat, SOS_COORDS.lng] as [number, number], []);
-
-  /* ---------------- RENDER ---------------- */
+  /* ------------------------ JSX ------------------------ */
   return (
-    <div className="space-y-6">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* LEFT AREA — Alerts List */}
+      <div className="space-y-4">
+        <h2 className="text-xl font-bold">🛟 Yatra Raksha — Active Alerts</h2>
 
-      {/* ========== SOS MODAL (opens only when WS sends SOS_ALERT) ========== */}
-      <Dialog open={openSosDialog} onOpenChange={setOpenSosDialog}>
-        <DialogOverlay className="z-[9998]" />
-        <DialogContent className="max-w-2xl z-[9999]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ScanLine className="h-5 w-5 text-critical" />
-              SOS Activated — {SOS_NAME}
-            </DialogTitle>
-            <DialogDescription>
-              Immediate assistance required. Tracking started & units notified.
-            </DialogDescription>
-          </DialogHeader>
+        {activeAlerts.length === 0 && (
+          <p className="text-sm text-muted-foreground">No active alerts yet.</p>
+        )}
 
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-            {/* ---------- Info Side ---------- */}
-            <div className="md:col-span-2 space-y-2">
-              <div className="flex items-center gap-2 text-sm">
-                <Phone className="h-4 w-4 text-muted-foreground" />
-                <span className="font-medium">Contact:</span>
-                <a href={`tel:${SOS_PHONE}`} className="text-primary underline">
-                  {SOS_PHONE}
-                </a>
-              </div>
+        {activeAlerts.map((a) => (
+          <Card key={a.id} className="border">
+            <CardHeader>
+              <CardTitle className="text-sm">{a.name}</CardTitle>
+            </CardHeader>
 
-              <div className="flex items-center gap-2 text-sm">
-                <MapPin className="h-4 w-4 text-muted-foreground" />
-                <span className="font-medium">Coordinates:</span>
-                <code className="bg-muted/60 rounded px-1 py-0.5 text-xs">
-                  lat: {SOS_COORDS.lat}, lng: {SOS_COORDS.lng}
-                </code>
-              </div>
+            <CardContent className="text-xs space-y-1">
+              <p>{a.locationName}</p>
+              <p className="text-muted-foreground">
+                Lat: {a.lat}, Lon: {a.lon}
+              </p>
 
-              <Separator className="my-2" />
-
-              <div className="flex flex-wrap gap-2">
-                <Badge className="bg-critical text-critical-foreground">CRITICAL</Badge>
-                <Badge variant="outline" className="gap-1">
-                  <Crosshair className="h-3 w-3" /> Tracking Enabled
-                </Badge>
-                <Badge variant="secondary" className="gap-1">
-                  <Users className="h-3 w-3" /> Units Notified
-                </Badge>
-              </div>
-
-              <div className="pt-2 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                <div>
-                  <div className="font-medium text-foreground">Tourist</div>
-                  {SOS_NAME}
-                </div>
-                <div>
-                  <div className="font-medium text-foreground">Source</div>
-                  Mobile App SOS
-                </div>
-                <div className="col-span-2">
-                  <div className="font-medium text-foreground">Nearest Landmark</div>
-                  Hyderabad, Telangana
-                </div>
-              </div>
-
-              <div className="flex gap-2 pt-3">
-                <Button className="bg-danger hover:bg-danger/90 h-9">Dispatch Unit</Button>
-                <Button variant="outline" className="h-9">Call {SOS_NAME}</Button>
-              </div>
-            </div>
-
-            {/* ---------- Map Side ---------- */}
-            <div className="md:col-span-3">
-              <div className="rounded-lg overflow-hidden border relative z-0">
-                <MapContainer
-                  key={mapKey}
-                  center={mapCenter}
-                  zoom={14}
-                  scrollWheelZoom={false}
-                  style={{ height: 260, width: "100%" }}
-                >
-                  <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                  <Marker position={mapCenter} icon={sosIcon}>
-                    <Popup>
-                      <div className="text-sm">
-                        <div className="font-medium">{SOS_NAME} — SOS</div>
-                        <div>lat: {SOS_COORDS.lat}, lng: {SOS_COORDS.lng}</div>
-                        <a className="text-primary underline" href={`tel:${SOS_PHONE}`}>
-                          {SOS_PHONE}
-                        </a>
-                      </div>
-                    </Popup>
-                  </Marker>
-
-                  <Circle center={mapCenter} radius={400} pathOptions={{ color: "red" }} />
-                </MapContainer>
-              </div>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* ------------------------------------------------------------- */}
-      {/* ---------------------- REST OF YOUR UI ---------------------- */}
-      {/* ------------------------------------------------------------- */}
-
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Active SOS Alerts</CardTitle>
-            <ScanLine className="h-4 w-4 text-critical animate-pulse" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-critical">7</div>
-            <p className="text-xs text-muted-foreground">+3 in last hour</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Police Units Deployed</CardTitle>
-            <Users className="h-4 w-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-primary">89</div>
-            <p className="text-xs text-muted-foreground">Across 12 states</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">High-Risk Zones</CardTitle>
-            <AlertCircle className="h-4 w-4 text-danger" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-danger">15</div>
-            <p className="text-xs text-muted-foreground">Under surveillance</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Avg Response Time</CardTitle>
-            <Clock className="h-4 w-4 text-safe" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-safe">3.4min</div>
-            <p className="text-xs text-muted-foreground">-45s faster today</p>
-          </CardContent>
-        </Card>
+              <Button
+                size="sm"
+                className="mt-2 w-full"
+                onClick={() => setSelectedAlert(a)}
+              >
+                View
+              </Button>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
-      {/* Live Map */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="lg:row-span-2">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <Radar className="h-5 w-5" />
-              Garuda Live Surveillance Map
-            </CardTitle>
-            <Button variant="outline" size="sm" onClick={() => setMapKey((k) => k + 1)}>
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Refresh
-            </Button>
-          </CardHeader>
+      {/* RIGHT AREA — Alert Details + Map + Ranger List */}
+      <div className="md:col-span-2">
+        {!selectedAlert ? (
+          <p className="text-center text-sm text-muted-foreground mt-20">
+            Select an alert from the left
+          </p>
+        ) : (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex gap-2 items-center">
+                <MapPin className="w-4 h-4" /> {selectedAlert.locationName}
+              </CardTitle>
+            </CardHeader>
 
-          <CardContent>
-            <div className="rounded-lg overflow-hidden border relative z-0">
-              <MapContainer
-                key={mapKey}
-                center={mapCenter}
-                zoom={12}
-                scrollWheelZoom
-                style={{ height: 420, width: "100%" }}
-              >
-                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-
-                <Marker position={mapCenter} icon={sosIcon}>
-                  <Popup>
-                    <div className="text-sm">
-                      <div className="font-medium">{SOS_NAME} — SOS</div>
-                      <div>lat: {SOS_COORDS.lat}, lng: {SOS_COORDS.lng}</div>
-                      <a className="text-primary underline" href={`tel:${SOS_PHONE}`}>
-                        {SOS_PHONE}
-                      </a>
-                    </div>
-                  </Popup>
-                </Marker>
-
-                <Circle center={mapCenter} radius={600} pathOptions={{ color: "red" }} />
-              </MapContainer>
-            </div>
-
-            {/* Legend */}
-            <div className="grid grid-cols-3 gap-4 mt-4">
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 bg-critical rounded-full animate-pulse"></div>
-                <span className="text-xs">SOS Alerts</span>
+            <CardContent className="space-y-4">
+              {/* Alert Info */}
+              <div className="text-sm space-y-1">
+                <p>
+                  <strong>Name:</strong> {selectedAlert.name}
+                </p>
+                <p className="flex items-center gap-1">
+                  <Phone className="w-3 h-3" />
+                  <a
+                    href={`tel:${selectedAlert.phone}`}
+                    className="text-primary underline"
+                  >
+                    {selectedAlert.phone}
+                  </a>
+                </p>
+                <p>
+                  <strong>Coordinates:</strong> {selectedAlert.lat},{" "}
+                  {selectedAlert.lon}
+                </p>
+                <p>
+                  <strong>Status:</strong> inlist
+                </p>
               </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 bg-primary rounded-full"></div>
-                <span className="text-xs">Police Units</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 bg-danger rounded-full"></div>
-                <span className="text-xs">High-Risk Zones</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
 
-        {/* Active Emergencies */}
-        <Card>
-          <CardHeader className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <Zap className="h-5 w-5" />
-              Active Emergency Cases
-            </CardTitle>
-            <Badge className="bg-critical text-critical-foreground">
-              <Activity className="h-3 w-3 mr-1" />
-              LIVE
-            </Badge>
-          </CardHeader>
+              {/* Map */}
+              <div className="rounded-lg border overflow-hidden">
+                <GarudaMap
+                  center={[selectedAlert.lat, selectedAlert.lon]}
+                  zoom={14}
+                  height={300}
+                  markers={[
+                    {
+                      id: "alertMarker",
+                      position: [selectedAlert.lat, selectedAlert.lon],
+                      popup: selectedAlert.locationName,
+                      type: "alert",
+                    },
+                    ...resqrsMarkers,
+                  ]}
+                />
+              </div>
 
-          <CardContent>
-            <div className="space-y-3">
-              {mockActiveCases.map((case_) => (
-                <div
-                  key={case_.id}
-                  className={`p-3 rounded-lg border-l-4 ${
-                    case_.priority === "critical"
-                      ? "border-l-critical bg-critical/5"
-                      : case_.priority === "high"
-                      ? "border-l-danger bg-danger/5"
-                      : case_.priority === "medium"
-                      ? "border-l-warning bg-warning/5"
-                      : "border-l-safe bg-safe/5"
-                  }`}
-                >
-                  <div className="flex justify-between items-start mb-2">
+              {/* Ranger Sorted List */}
+              <div className="mt-4 space-y-3">
+                <h3 className="font-bold text-md">Nearest Rescue Teams</h3>
+
+                {getSortedRangers().map((r, i) => (
+                  <div
+                    key={r.rid}
+                    className={`p-3 rounded-lg border flex justify-between items-center ${
+                      r.status === "in-op"
+                        ? "bg-red-100 border-red-400"
+                        : "bg-green-100 border-green-400"
+                    }`}
+                  >
                     <div>
-                      <p className="font-medium text-sm">{case_.type}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {case_.tourist} - {case_.location}
+                      <p>
+                        <strong>{r.rname}</strong> ({r.rid})
+                      </p>
+                      <p className="text-sm">
+                        Distance: {r.distance.toFixed(2)} km
+                      </p>
+                      <p className="text-sm">Status: {r.status}</p>
+                      <p className="text-sm">
+                        Assigned Alerts: {r.assigned_operations.length}/3
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Badge className={getPriorityColor(case_.priority)} variant="secondary">
-                        {case_.priority}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">{case_.time}</span>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="outline" className="h-7 text-xs">
-                      View Details
-                    </Button>
-                    <Button size="sm" className="h-7 text-xs bg-critical hover:bg-critical/90">
-                      Dispatch Unit
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
 
-        {/* Hotspots */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <MapPin className="h-5 w-5" />
-              Current Hotspots & Deployments
-            </CardTitle>
-          </CardHeader>
-
-          <CardContent>
-            <div className="space-y-4">
-              {mockHotspots.map((hotspot, index) => (
-                <div key={index} className="flex items-center justify-between p-3 bg-secondary/20 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-critical/10 rounded-full flex items-center justify-center">
-                      <MapPin className="h-4 w-4 text-critical" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-sm">{hotspot.location}</p>
-                      <p className="text-xs text-muted-foreground">{hotspot.incidents} incidents today</p>
-                    </div>
+                    {i === 0 && (
+                      <span className="px-2 py-1 bg-blue-500 text-white text-xs rounded">
+                        Closest
+                      </span>
+                    )}
                   </div>
-                  <div className="text-right">
-                    <p className={`font-medium text-sm ${getRiskColor(hotspot.riskLevel)}`}>
-                      {hotspot.riskLevel.toUpperCase()}
-                    </p>
-                    <p className="text-xs text-muted-foreground">{hotspot.activeUnits} units active</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
-
-      {/* Quick Actions */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Emergency Response Quick Actions</CardTitle>
-        </CardHeader>
-
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Button className="h-16 bg-critical hover:bg-critical/90 flex-col">
-              <ScanLine className="h-6 w-6 mb-2" />
-              <span className="text-sm">Mass Alert</span>
-            </Button>
-
-            <Button className="h-16 bg-danger hover:bg-danger/90 flex-col">
-              <Users className="h-6 w-6 mb-2" />
-              <span className="text-sm">Deploy Units</span>
-            </Button>
-
-            <Button className="h-16 bg-warning hover:bg-warning/90 flex-col">
-              <AlertCircle className="h-6 w-6 mb-2" />
-              <span className="text-sm">Zone Alert</span>
-            </Button>
-
-            <Button className="h-16 bg-primary hover:bg-primary-hover flex-col">
-              <Activity className="h-6 w-6 mb-2" />
-              <span className="text-sm">Status Report</span>
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 };
