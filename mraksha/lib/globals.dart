@@ -1,8 +1,16 @@
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:flutter_bluetooth_serial_plus/flutter_bluetooth_serial_plus.dart'
+    hide BluetoothDevice;
+import 'package:mraksha/services/native_sensor_service.dart';
 import 'package:mraksha/services/signal_services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+Future<List> sensorList = NativeSensorService.getSensorList();
+
+List<ScanResult> nearbyDevices = [];
+BluetoothConnection? globalConnection;
 Future<void> makeCall(String number) async {
   // Request CALL_PHONE permission
   final status = await Permission.phone.request();

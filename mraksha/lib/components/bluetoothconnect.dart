@@ -1,12 +1,418 @@
-import 'dart:async';
+// import 'dart:convert';
+// import 'package:flutter/material.dart';
+// import 'package:flutter_bluetooth_serial_plus/flutter_bluetooth_serial_plus.dart';
+// import 'package:http/http.dart' as http;
+// import 'package:mraksha/globals.dart';
+// import 'package:mraksha/services/network_service.dart';
+// import 'package:mraksha/services/signal_services.dart';
+// import 'package:mraksha/services/bluetooth_manager.dart';
+// import 'package:mraksha/components/devicepicker.dart';
+
+// class BluetoothHomePage extends StatefulWidget {
+//   const BluetoothHomePage({super.key});
+
+//   @override
+//   State<BluetoothHomePage> createState() => _BluetoothHomePageState();
+// }
+
+// class _BluetoothHomePageState extends State<BluetoothHomePage> {
+//   final FlutterBluetoothSerial _bluetooth = FlutterBluetoothSerial.instance;
+
+//   bool _isConnecting = false;
+//   String _status = "Not connected";
+
+//   String _lastRawLine = "";
+//   Map<String, dynamic>? _lastJson;
+
+//   @override
+//   void initState() {
+//     super.initState();
+//     _initBluetooth();
+
+//     // 🔥 Listen to BTManager stream
+//     BluetoothManager.instance.dataStream.stream.listen((event) {
+//       _handleIncomingLine(event["raw"]);
+//     });
+//   }
+
+//   Future<void> _initBluetooth() async {
+//     try {
+//       final isEnabled = await _bluetooth.isEnabled;
+//       if (!(isEnabled ?? false)) {
+//         await _bluetooth.requestEnable();
+//       }
+//     } catch (e) {
+//       setState(() {
+//         _status = "Bluetooth init error: $e";
+//       });
+//     }
+//   }
+
+//   // ================= CONNECT =====================
+
+//   Future<void> _selectDeviceAndConnect() async {
+//     setState(() {
+//       _isConnecting = true;
+//       _status = "Selecting device...";
+//     });
+
+//     final BluetoothDevice? selected = await showDialog(
+//       context: context,
+//       builder: (context) => const DevicePickerDialog(),
+//     );
+
+//     if (selected == null) {
+//       setState(() {
+//         _isConnecting = false;
+//         _status = "Device selection cancelled";
+//       });
+//       return;
+//     }
+
+//     setState(() {
+//       _status = "Connecting to ${selected.name ?? selected.address}...";
+//     });
+
+//     final ok = await BluetoothManager.instance.connect(selected.address);
+
+//     if (!mounted) return;
+
+//     setState(() {
+//       _isConnecting = false;
+//       _status = ok
+//           ? "Connected to ${selected.name ?? selected.address}"
+//           : "Connection failed";
+//     });
+//   }
+
+//   // ================= INCOMING DATA =====================
+
+//   void _handleIncomingLine(String line) {
+//     Map<String, dynamic>? parsed;
+
+//     try {
+//       parsed = json.decode(line);
+//       if (parsed is! Map<String, dynamic>) parsed = null;
+//     } catch (_) {
+//       parsed = null;
+//     }
+
+//     if (parsed != null) {
+//       _handleJsonFromDevice(parsed);
+//     }
+
+//     if (!mounted) return;
+
+//     setState(() {
+//       _lastRawLine = line;
+//       _lastJson = parsed;
+//       _status = parsed != null
+//           ? "Received JSON: ${parsed['type'] ?? parsed['cmd'] ?? '-'}"
+//           : "Received non-JSON data";
+//     });
+//   }
+
+//   // ================= HANDLE JSON =======================
+
+//   Future<void> _handleJsonFromDevice(Map<String, dynamic> jsonMap) async {
+//     final cmd = jsonMap["cmd"];
+
+//     if (cmd == "CHECK_SIGNAL") {
+//       await _replySignalStatus();
+//     }
+//   }
+
+//   Future<void> _replySignalStatus() async {
+//     try {
+//       final net = await NetworkService.checkStatusOnce();
+//       final netStatus = net["status"]?.toString() ?? "0";
+//       final cellLevel = await SignalService.getCellularLevel();
+
+//       final hasSignal = netStatus == "1" || cellLevel != 0;
+
+//       final reply = {
+//         "type": "SIGNAL_STATUS",
+//         "has_signal": hasSignal,
+//         "net_status": netStatus,
+//         "cell_level": cellLevel,
+//       };
+
+//       BluetoothManager.instance.sendJson(reply);
+
+//       setState(() {
+//         _status = "Replied SIGNAL_STATUS";
+//         _lastJson = reply;
+//         _lastRawLine = json.encode(reply);
+//       });
+//     } catch (e) {
+//       setState(() {
+//         _status = "Error replying signal status: $e";
+//       });
+//     }
+//   }
+
+//   // ================= SEND COMMAND =====================
+
+//   Future<void> _sendCommand(Map<String, dynamic> cmd) async {
+//     try {
+//       final net = await NetworkService.checkStatusOnce();
+//       print("Network check: $net");
+
+//       if (net["status"] == "1") {
+//         // Cloud
+//         final res = await http.post(
+//           Uri.parse(dashboardendpoint),
+//           headers: {"Content-Type": "application/json"},
+//           body: json.encode(cmd),
+//         );
+
+//         print("HTTP Response: ${res.body}");
+//         setState(() => _status = "Sent via Internet");
+//         return;
+//       }
+
+//       final level = await SignalService.getCellularLevel();
+
+//       if (level != 0) {
+//         BluetoothManager.instance.sendJson(cmd);
+//         setState(() => _status = "Sent via BT (cell signal)");
+//         return;
+//       }
+
+//       setState(() => _status = "No internet or signal");
+//     } catch (e) {
+//       setState(() => _status = "Error sending: $e");
+//     }
+//   }
+
+//   // ================= UI =============================
+
+//   @override
+//   Widget build(BuildContext context) {
+//     final isConnected = BluetoothManager.instance.isConnected;
+
+//     return Scaffold(
+//       appBar: AppBar(
+//         title: const Text("YatraRaksha Dongle"),
+//         actions: [
+//           Icon(
+//             isConnected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
+//             color: isConnected ? Colors.lightBlueAccent : Colors.redAccent,
+//           ),
+//           const SizedBox(width: 12),
+//         ],
+//       ),
+
+//       body: SafeArea(
+//         child: Padding(
+//           padding: const EdgeInsets.all(12),
+//           child: Column(
+//             children: [
+//               Text(
+//                 "Status: $_status",
+//                 style: const TextStyle(color: Colors.grey),
+//               ),
+//               const SizedBox(height: 8),
+
+//               Wrap(
+//                 spacing: 10,
+//                 runSpacing: 10,
+//                 children: [
+//                   ElevatedButton.icon(
+//                     onPressed: _isConnecting ? null : _selectDeviceAndConnect,
+//                     icon: const Icon(Icons.bluetooth_searching),
+//                     label: Text(isConnected ? "Change Device" : "Connect"),
+//                   ),
+
+//                   if (isConnected)
+//                     ElevatedButton.icon(
+//                       style: ElevatedButton.styleFrom(
+//                         backgroundColor: Colors.redAccent,
+//                       ),
+//                       onPressed: () {
+//                         BluetoothManager.instance.disconnect();
+//                         setState(() => _status = "Disconnected");
+//                       },
+//                       icon: const Icon(Icons.close),
+//                       label: const Text("Disconnect"),
+//                     ),
+
+//                   if (isConnected)
+//                     ElevatedButton.icon(
+//                       icon: const Icon(Icons.send),
+//                       label: const Text("GET_ENV"),
+//                       onPressed: () => _sendCommand({"cmd": "GET_ENV"}),
+//                     ),
+
+//                   if (isConnected)
+//                     ElevatedButton.icon(
+//                       icon: const Icon(Icons.place),
+//                       label: const Text("GET_ENV_GPS"),
+//                       onPressed: () => _sendCommand({"cmd": "GET_ENV_GPS"}),
+//                     ),
+
+//                   if (isConnected)
+//                     ElevatedButton.icon(
+//                       icon: const Icon(Icons.emergency),
+//                       label: const Text("Send SOS (demo)"),
+//                       style: ElevatedButton.styleFrom(
+//                         backgroundColor: Colors.orangeAccent,
+//                       ),
+//                       onPressed: () => _sendCommand({
+//                         "cmd": "SOS",
+//                         "fall_detected": true,
+//                         "activity": "walking",
+//                         "orientation": "upright",
+//                         "heading_deg": 120.0,
+//                         "accel_rms": 0.5,
+//                         "gyro_rms": 0.3,
+//                         "phone_battery": 78,
+//                       }),
+//                     ),
+//                 ],
+//               ),
+
+//               const SizedBox(height: 12),
+//               const Divider(),
+
+//               Expanded(
+//                 child: ListView(
+//                   children: [_buildParsedView(), const SizedBox(height: 20)],
+//                 ),
+//               ),
+//             ],
+//           ),
+//         ),
+//       ),
+//     );
+//   }
+
+//   // ==================== JSON CARDS =====================
+
+//   Widget _buildParsedView() {
+//     if (_lastJson == null) {
+//       return const Text("No JSON received yet.");
+//     }
+
+//     final type = _lastJson!['type'];
+//     switch (type) {
+//       case "ENV":
+//         return _buildEnvCard();
+//       case "SOS":
+//       case "SOS_BUTTON":
+//         return _buildSosCard();
+//       case "ACK_SOS":
+//         return _buildAckCard();
+//       case "SIGNAL_STATUS":
+//         return _buildSignalStatusCard();
+//     }
+
+//     return Text(
+//       const JsonEncoder.withIndent('  ').convert(_lastJson),
+//       style: const TextStyle(fontFamily: 'monospace'),
+//     );
+//   }
+
+//   // ===== ENV Card =====
+
+//   Widget _buildEnvCard() {
+//     final j = _lastJson!;
+//     return Card(
+//       child: Padding(
+//         padding: const EdgeInsets.all(12),
+//         child: Column(
+//           crossAxisAlignment: CrossAxisAlignment.start,
+//           children: [
+//             const Text(
+//               "Environment",
+//               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+//             ),
+//             Text("Temp: ${j['temp']} °C"),
+//             Text("Pressure: ${j['pressure']} hPa"),
+//             if (j['lat'] != null)
+//               Text("GPS: ${j['lat']}, ${j['lon']} (alt: ${j['alt']})"),
+//           ],
+//         ),
+//       ),
+//     );
+//   }
+
+//   // ===== SOS Card =====
+
+//   Widget _buildSosCard() {
+//     final j = _lastJson!;
+//     return Card(
+//       color: Colors.red.withOpacity(.08),
+//       child: Padding(
+//         padding: const EdgeInsets.all(12),
+//         child: Column(
+//           crossAxisAlignment: CrossAxisAlignment.start,
+//           children: [
+//             const Text(
+//               "🚨 SOS Detected",
+//               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+//             ),
+//             Text("Fall: ${j['fall_detected']}"),
+//             Text("Activity: ${j['activity']}"),
+//             Text("Orientation: ${j['orientation']}"),
+//             Text("Heading: ${j['heading_deg']}"),
+//           ],
+//         ),
+//       ),
+//     );
+//   }
+
+//   // ===== ACK Card =====
+
+//   Widget _buildAckCard() {
+//     final status = _lastJson!['status'];
+//     return Card(
+//       color: Colors.green.withOpacity(.15),
+//       child: Padding(
+//         padding: const EdgeInsets.all(12),
+//         child: Row(
+//           children: [
+//             const Icon(Icons.check_circle, color: Colors.green),
+//             const SizedBox(width: 8),
+//             Text("ACK: $status"),
+//           ],
+//         ),
+//       ),
+//     );
+//   }
+
+//   // ===== Signal Status Card =====
+
+//   Widget _buildSignalStatusCard() {
+//     final j = _lastJson!;
+//     return Card(
+//       child: Padding(
+//         padding: const EdgeInsets.all(12),
+//         child: Column(
+//           crossAxisAlignment: CrossAxisAlignment.start,
+//           children: [
+//             const Text(
+//               "Signal Status",
+//               style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+//             ),
+//             Text("Has signal: ${j['has_signal']}"),
+//             Text("Net status: ${j['net_status']}"),
+//             Text("Cellular: ${j['cell_level']}"),
+//           ],
+//         ),
+//       ),
+//     );
+//   }
+// }
+
 import 'dart:convert';
-import 'dart:typed_data';
-import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:flutter_bluetooth_serial_plus/flutter_bluetooth_serial_plus.dart';
+import 'package:http/http.dart' as http;
 import 'package:mraksha/globals.dart';
 import 'package:mraksha/services/network_service.dart';
 import 'package:mraksha/services/signal_services.dart';
+import 'package:mraksha/services/bluetooth_manager.dart';
 import 'package:mraksha/components/devicepicker.dart';
 
 class BluetoothHomePage extends StatefulWidget {
@@ -19,22 +425,21 @@ class BluetoothHomePage extends StatefulWidget {
 class _BluetoothHomePageState extends State<BluetoothHomePage> {
   final FlutterBluetoothSerial _bluetooth = FlutterBluetoothSerial.instance;
 
-  BluetoothConnection? _connection;
-  BluetoothDevice? _device;
   bool _isConnecting = false;
-  bool _isConnected = false;
-
   String _status = "Not connected";
+
   String _lastRawLine = "";
   Map<String, dynamic>? _lastJson;
-
-  // Buffer for incoming data until '\n'
-  String _incomingBuffer = "";
 
   @override
   void initState() {
     super.initState();
     _initBluetooth();
+
+    // 🔥 Listen to BTManager stream
+    BluetoothManager.instance.dataStream.stream.listen((event) {
+      _handleIncomingLine(event["raw"]);
+    });
   }
 
   Future<void> _initBluetooth() async {
@@ -50,402 +455,304 @@ class _BluetoothHomePageState extends State<BluetoothHomePage> {
     }
   }
 
+  // ================= CONNECT =====================
+
   Future<void> _selectDeviceAndConnect() async {
-    try {
-      setState(() {
-        _isConnecting = true;
-        _status = "Selecting device...";
-      });
+    setState(() {
+      _isConnecting = true;
+      _status = "Selecting device...";
+    });
 
-      final BluetoothDevice? selectedDevice = await showDialog<BluetoothDevice>(
-        context: context,
-        builder: (context) => const DevicePickerDialog(),
-      );
-
-      if (selectedDevice == null) {
-        setState(() {
-          _isConnecting = false;
-          _status = "Device selection cancelled";
-        });
-        return;
-      }
-
-      _device = selectedDevice;
-
-      setState(() {
-        _status = "Connecting to ${_device!.name ?? _device!.address}...";
-      });
-
-      final connection = await BluetoothConnection.toAddress(_device!.address);
-
-      // connection success
-      if (!mounted) return;
-      setState(() {
-        _connection = connection;
-        _isConnecting = false;
-        _isConnected = true;
-        _status = "Connected to ${_device!.name ?? _device!.address}";
-      });
-
-      _listenToData(connection);
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isConnecting = false;
-        _isConnected = false;
-        _status = "Connection failed: $e";
-      });
-    }
-  }
-
-  void _listenToData(BluetoothConnection connection) {
-    // ensure any previous listeners are cancelled
-    connection.input?.listen(
-      (Uint8List data) {
-        // convert bytes to string chunk
-        final chunk = String.fromCharCodes(data);
-        _incomingBuffer += chunk;
-
-        int index;
-        while ((index = _incomingBuffer.indexOf('\n')) != -1) {
-          final line = _incomingBuffer.substring(0, index).trim();
-          _incomingBuffer = _incomingBuffer.substring(index + 1);
-          if (line.isEmpty) continue;
-          _handleLine(line);
-        }
-      },
-      onDone: () {
-        // remote closed connection
-        if (!mounted) return;
-        setState(() {
-          _isConnected = false;
-          _status = "Disconnected from ${_device?.name ?? 'device'}";
-        });
-        // dispose connection reference
-        _connection = null;
-      },
-      onError: (err) {
-        if (!mounted) return;
-        setState(() {
-          _isConnected = false;
-          _status = "Connection error: $err";
-        });
-        _connection = null;
-      },
+    final BluetoothDevice? selected = await showDialog(
+      context: context,
+      builder: (context) => const DevicePickerDialog(),
     );
+
+    if (selected == null) {
+      setState(() {
+        _isConnecting = false;
+        _status = "Device selection cancelled";
+      });
+      return;
+    }
+
+    setState(() {
+      _status = "Connecting to ${selected.name ?? selected.address}...";
+    });
+
+    final ok = await BluetoothManager.instance.connect(selected.address);
+
+    if (!mounted) return;
+
+    setState(() {
+      _isConnecting = false;
+      _status = ok
+          ? "Connected to ${selected.name ?? selected.address}"
+          : "Connection failed";
+    });
   }
 
-  void _handleLine(String line) {
-    print("\nReached \n");
+  // ================= INCOMING DATA =====================
+
+  void _handleIncomingLine(String line) {
     Map<String, dynamic>? parsed;
+
     try {
-      final jsonData = json.decode(line);
-      if (jsonData is Map<String, dynamic>) parsed = jsonData;
+      parsed = json.decode(line);
+      if (parsed is! Map<String, dynamic>) parsed = null;
     } catch (_) {
       parsed = null;
     }
-
-    // 🔍 NEW: handle commands from dongle (e.g., CHECK_SIGNAL)
+    print("\nhello lllo\n" + line);
     if (parsed != null) {
+      print("\nits not null \n");
       _handleJsonFromDevice(parsed);
     }
 
     if (!mounted) return;
+
     setState(() {
       _lastRawLine = line;
-      if (parsed != null) {
-        _lastJson = parsed;
-        final t = parsed['type'] ?? parsed['cmd'] ?? 'unknown';
-        _status = "Received JSON: $t";
-      } else {
-        _status = "Received non-JSON line";
-      }
+      _lastJson = parsed;
+      _status = parsed != null
+          ? "Received JSON: ${parsed['type'] ?? parsed['cmd'] ?? '-'}"
+          : "Received non-JSON data";
     });
   }
 
-  // NEW: async handler so we can await NetworkService / SignalService
-  Future<void> _handleJsonFromDevice(Map<String, dynamic> parsed) async {
-    final String? cmd = parsed['cmd']?.toString();
-    print("\nreached here1\n");
-    // ESP32 asks: "Do you have signal?"
-    if (cmd == 'CHECK_SIGNAL') {
-      try {
-        // 1) Check network status
-        final net = await NetworkService.checkStatusOnce();
-        final netStatus = net["status"]?.toString() ?? "0";
+  // ================= HANDLE JSON =======================
 
-        // FIX: Await cellular level BEFORE using it
-        final int cellLevel = await SignalService.getCellularLevel();
+  Future<void> _handleJsonFromDevice(Map<String, dynamic> jsonMap) async {
+    final cmd = jsonMap["cmd"];
 
-        bool hasSignal;
-        if (netStatus == "1") {
-          print("internet check from esp");
-          hasSignal = true;
-        } else if (cellLevel != 0) {
-          print("signal check from esp");
-          hasSignal = true;
-        } else {
-          hasSignal = false;
-        }
-
-        // 2) Build reply JSON
-        final reply = <String, dynamic>{
-          "type": "SIGNAL_STATUS",
-          "has_signal": hasSignal,
-          "net_status": netStatus,
-          "cell_level": cellLevel,
-        };
-
-        final jsonStr = json.encode(reply);
-
-        // 3) Send reply to ESP32
-        if (_connection != null && _isConnected) {
-          _connection!.output.add(utf8.encode("$jsonStr\n"));
-          await _connection!.output.allSent;
-        }
-        if (hasSignal) {
-          _sendCommand({
-            "cmd": "SOS",
-            "fall_detected": true,
-            "activity": "walking",
-            "orientation": "upright",
-            "heading_deg": 120.0,
-            "accel_rms": 0.5,
-            "gyro_rms": 0.3,
-            "phone_battery": 78,
-          });
-        }
-
-        print(jsonStr);
-
-        if (!mounted) return;
-        setState(() {
-          _status = "Replied SIGNAL_STATUS: $hasSignal";
-          _lastJson = reply;
-          _lastRawLine = jsonStr;
-        });
-      } catch (e) {
-        if (!mounted) return;
-        setState(() {
-          _status = "Error replying SIGNAL_STATUS: $e";
-        });
-      }
-
-      return;
+    if (cmd == "CHECK_SIGNAL") {
+      await _replySignalStatus();
     }
-
-    // For other messages, nothing special here (UI handled in _buildParsedView)
   }
 
-  Future<void> _sendCommand(Map<String, dynamic> cmd) async {
-    if (!_isConnected || _connection == null) {
-      setState(() {
-        _status = "Not connected to ESP";
-      });
-      return;
-    }
-
+  Future<void> _replySignalStatus() async {
     try {
-      // 🔍 1️⃣ Check network once
+      final net = await NetworkService.checkStatusOnce();
+      final netStatus = net["status"]?.toString() ?? "0";
+      final cellLevel = await SignalService.getCellularLevel();
+
+      final hasSignal = netStatus == "1" || cellLevel != 0;
+
+      final reply = {
+        "type": "SIGNAL_STATUS",
+        "has_signal": hasSignal,
+        "net_status": netStatus,
+        "cell_level": cellLevel,
+      };
+
+      BluetoothManager.instance.sendJson(reply);
+
+      setState(() {
+        _status = "Replied SIGNAL_STATUS";
+        _lastJson = reply;
+        _lastRawLine = json.encode(reply);
+      });
+    } catch (e) {
+      setState(() {
+        _status = "Error replying signal status: $e";
+      });
+    }
+  }
+
+  // ================= SEND COMMAND =====================
+
+  Future<void> _sendCommand(Map<String, dynamic> cmd) async {
+    try {
       final net = await NetworkService.checkStatusOnce();
 
-      print("Network check: $net");
+      print("\nNetwork check: $net\n");
 
       if (net["status"] == "1") {
-        // 📡 2️⃣ Internet available → Send via HTTP
-        try {
-          final response = await http.post(
-            Uri.parse(dashboardendpoint),
-            headers: {"Content-Type": "application/json"},
-            body: json.encode(cmd),
-          );
+        // Cloud
+        final res = await http.post(
+          Uri.parse(dashboardendpoint),
+          headers: {"Content-Type": "application/json"},
+          body: json.encode(cmd),
+        );
 
-          print("HTTP Response: ${response.body}");
-          setState(() => _status = "Sent via Internet");
-        } catch (e) {
-          print("HTTP Error: $e");
-        }
-
-        return; // STOP here
-      }
-
-      // 📶 3️⃣ No internet → Check cellular signal
-      if (SignalService.getCellularLevel() != 0) {
-        print("No internet but cellular signal available → send using BT");
-
-        final String jsonStr = json.encode(cmd);
-        _connection!.output.add(utf8.encode("$jsonStr\n"));
-        await _connection!.output.allSent;
-
-        setState(() {
-          _status = "Sent via Cellular (BT)";
-        });
-
+        print("HTTP Response: ${res.body}");
+        setState(() => _status = "Sent via Internet");
         return;
       }
 
-      // ❌ 4️⃣ No internet + No signal
-      print("No internet, no signal — message cannot be sent");
-      setState(() {
-        _status = "No internet & No signal";
-      });
+      final level = await SignalService.getCellularLevel();
+
+      if (level != 0) {
+        BluetoothManager.instance.sendJson(cmd);
+        setState(() => _status = "Sent via BT (cell signal)");
+        return;
+      }
+
+      setState(() => _status = "No internet or signal");
     } catch (e) {
-      print("Send Error: $e");
-      setState(() => _status = "Error: $e");
+      setState(() => _status = "Error sending: $e");
     }
   }
 
-  void _disconnect() {
-    try {
-      _connection?.dispose();
-    } catch (_) {}
-    _connection = null;
-    if (!mounted) return;
-    setState(() {
-      _isConnected = false;
-      _status = "Disconnected";
-    });
-  }
-
-  @override
-  void dispose() {
-    _disconnect();
-    super.dispose();
-  }
+  // ================= UI =============================
 
   @override
   Widget build(BuildContext context) {
-    final lastType =
-        _lastJson?['type']?.toString() ?? _lastJson?['cmd']?.toString() ?? '-';
+    final isConnected = BluetoothManager.instance.isConnected;
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF8F7FF),
       appBar: AppBar(
-        title: const Text('YatraRaksha Dongle'),
-        actions: [
-          Icon(
-            _isConnected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
-            color: _isConnected ? Colors.lightBlueAccent : Colors.redAccent,
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        title: const Text(
+          "YatraRaksha Dongle",
+          style: TextStyle(
+            color: Color(0xFF6B46C1),
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.5,
           ),
-          const SizedBox(width: 12),
+        ),
+        actions: [
+          Container(
+            margin: const EdgeInsets.only(right: 16),
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: isConnected
+                    ? const Color(0xFF7C3AED)
+                    : const Color(0xFFD1D5DB),
+                width: 2,
+              ),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              isConnected
+                  ? Icons.bluetooth_connected
+                  : Icons.bluetooth_disabled,
+              color: isConnected
+                  ? const Color(0xFF7C3AED)
+                  : const Color(0xFFD1D5DB),
+              size: 20,
+            ),
+          ),
         ],
       ),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(12.0),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Status
-              Text(
-                "Status: $_status",
-                style: const TextStyle(fontSize: 14, color: Colors.grey),
-              ),
-              const SizedBox(height: 8),
-
-              // Make top controls responsive: use Wrap so buttons wrap to next line
-              Wrap(
-                runSpacing: 8,
-                spacing: 8,
-                children: [
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(minWidth: 140),
-                    child: ElevatedButton.icon(
-                      onPressed: _isConnecting ? null : _selectDeviceAndConnect,
-                      icon: const Icon(Icons.bluetooth_searching),
-                      label: Text(
-                        _isConnected ? "Change Device" : "Connect",
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
+              // Status Container
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: const Color(0xFFE9D5FF),
+                    width: 1.5,
                   ),
-                  if (_isConnected)
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(minWidth: 120),
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.redAccent,
+                  borderRadius: BorderRadius.circular(12),
+                  color: const Color(0xFFFAF5FF),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: _status.contains("Connected")
+                            ? const Color(0xFF10B981)
+                            : const Color(0xFFF59E0B),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        "Status: $_status",
+                        style: const TextStyle(
+                          color: Color(0xFF6B46C1),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
                         ),
-                        onPressed: _disconnect,
-                        icon: const Icon(Icons.close),
-                        label: const Text("Disconnect"),
                       ),
                     ),
-                  if (_isConnected)
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(minWidth: 140),
-                      child: ElevatedButton.icon(
-                        icon: const Icon(Icons.send),
-                        label: const Text("GET_ENV"),
-                        onPressed: () => _sendCommand({"cmd": "GET_ENV"}),
-                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Buttons Grid
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  _buildPurpleButton(
+                    icon: Icons.bluetooth_searching,
+                    label: isConnected ? "Change Device" : "Connect",
+                    onPressed: _isConnecting ? null : _selectDeviceAndConnect,
+                    isPrimary: true,
+                  ),
+                  if (isConnected)
+                    _buildPurpleButton(
+                      icon: Icons.close,
+                      label: "Disconnect",
+                      onPressed: () {
+                        BluetoothManager.instance.disconnect();
+                        setState(() => _status = "Disconnected");
+                      },
+                      isDanger: true,
                     ),
-                  if (_isConnected)
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(minWidth: 160),
-                      child: ElevatedButton.icon(
-                        icon: const Icon(Icons.my_location),
-                        label: const Text("GET_ENV_GPS"),
-                        onPressed: () => _sendCommand({"cmd": "GET_ENV_GPS"}),
-                      ),
+                  if (isConnected)
+                    _buildPurpleButton(
+                      icon: Icons.send,
+                      label: "GET_ENV",
+                      onPressed: () => _sendCommand({"cmd": "GET_ENV"}),
                     ),
-                  if (_isConnected)
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(minWidth: 140),
-                      child: ElevatedButton.icon(
-                        icon: const Icon(Icons.emergency),
-                        label: const Text("Send SOS (demo)"),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orangeAccent,
-                        ),
-                        onPressed: () => _sendCommand({
-                          "cmd": "SOS",
-                          "fall_detected": true,
-                          "activity": "walking",
-                          "orientation": "upright",
-                          "heading_deg": 120.0,
-                          "accel_rms": 0.5,
-                          "gyro_rms": 0.3,
-                          "phone_battery": 78,
-                        }),
-                      ),
+                  if (isConnected)
+                    _buildPurpleButton(
+                      icon: Icons.place,
+                      label: "GET_ENV_GPS",
+                      onPressed: () => _sendCommand({"cmd": "GET_ENV_GPS"}),
+                    ),
+                  if (isConnected)
+                    _buildPurpleButton(
+                      icon: Icons.emergency,
+                      label: "Send SOS (demo)",
+                      onPressed: () => _sendCommand({
+                        "cmd": "SOS",
+                        "fall_detected": true,
+                        "activity": "walking",
+                        "orientation": "upright",
+                        "heading_deg": 120.0,
+                        "accel_rms": 0.5,
+                        "gyro_rms": 0.3,
+                        "phone_battery": 78,
+                      }),
+                      isWarning: true,
                     ),
                 ],
               ),
 
-              const SizedBox(height: 12),
-              const Divider(),
-
-              // Last message type
-              Text(
-                "Last message type: $lastType",
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
+              const SizedBox(height: 16),
+              Container(
+                height: 1,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.transparent,
+                      const Color(0xFFE9D5FF),
+                      Colors.transparent,
+                    ],
+                  ),
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
 
-              // Scrollable area (prevents overflow)
               Expanded(
                 child: ListView(
-                  children: [
-                    _buildParsedView(),
-                    const SizedBox(height: 16),
-                    const Divider(),
-                    const Text(
-                      "Raw last line:",
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 8),
-                    SelectableText(
-                      _lastRawLine,
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 12,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                  ],
+                  children: [_buildParsedView(), const SizedBox(height: 20)],
                 ),
               ),
             ],
@@ -455,149 +762,232 @@ class _BluetoothHomePageState extends State<BluetoothHomePage> {
     );
   }
 
+  Widget _buildPurpleButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback? onPressed,
+    bool isPrimary = false,
+    bool isDanger = false,
+    bool isWarning = false,
+  }) {
+    Color borderColor = const Color(0xFF7C3AED);
+    Color textColor = const Color(0xFF6B46C1);
+    Color bgColor = const Color(0xFFFAF5FF);
+
+    if (isDanger) {
+      borderColor = const Color(0xFFEC4899);
+      textColor = const Color(0xFFBE123C);
+      bgColor = const Color(0xFFFFF0F6);
+    } else if (isWarning) {
+      borderColor = const Color(0xFFF97316);
+      textColor = const Color(0xFFEA580C);
+      bgColor = const Color(0xFFFFF7ED);
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: borderColor, width: 1.5),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Material(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(10),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, color: textColor, size: 18),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: textColor,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ==================== JSON CARDS =====================
+
   Widget _buildParsedView() {
     if (_lastJson == null) {
-      return const Padding(
-        padding: EdgeInsets.all(8.0),
-        child: Text("No JSON received yet."),
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          border: Border.all(color: const Color(0xFFE9D5FF), width: 1.5),
+          borderRadius: BorderRadius.circular(12),
+          color: const Color(0xFFFAF5FF),
+        ),
+        child: const Center(
+          child: Text(
+            "No JSON received yet.",
+            style: TextStyle(
+              color: Color(0xFF9333EA),
+              fontSize: 14,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ),
       );
     }
 
-    final type = _lastJson!['type']?.toString();
-
-    if (type == 'ENV') {
-      return _buildEnvCard();
-    } else if (type == 'SOS' || type == 'SOS_BUTTON') {
-      return _buildSosCard();
-    } else if (type == 'ACK_SOS') {
-      return _buildAckCard();
-    } else if (type == 'PHONE_HAS_SIGNAL') {
-      return _buildPhoneSignalCard(); // NEW
-    } else if (type == 'SIGNAL_STATUS') {
-      // Optional: show our own reply to CHECK_SIGNAL nicely
-      return _buildSignalStatusCard();
+    final type = _lastJson!['type'];
+    switch (type) {
+      case "ENV":
+        return _buildEnvCard();
+      case "SOS":
+      case "SOS_BUTTON":
+        return _buildSosCard();
+      case "ACK_SOS":
+        return _buildAckCard();
+      case "SIGNAL_STATUS":
+        return _buildSignalStatusCard();
     }
 
-    return Padding(
-      padding: const EdgeInsets.all(8.0),
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        border: Border.all(color: const Color(0xFFE9D5FF), width: 1.5),
+        borderRadius: BorderRadius.circular(12),
+        color: const Color(0xFFFAF5FF),
+      ),
       child: Text(
         const JsonEncoder.withIndent('  ').convert(_lastJson),
-        style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+        style: const TextStyle(
+          fontFamily: 'monospace',
+          color: Color(0xFF6B46C1),
+          fontSize: 11,
+        ),
       ),
     );
   }
+
+  // ===== ENV Card =====
 
   Widget _buildEnvCard() {
-    final temp = _lastJson!['temp'];
-    final pressure = _lastJson!['pressure'];
-    final gpsValid = _lastJson!['gps_valid'];
-    final lat = _lastJson!['lat'];
-    final lon = _lastJson!['lon'];
-    final alt = _lastJson!['alt'];
-
-    return Card(
+    final j = _lastJson!;
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: const Color(0xFFE9D5FF), width: 1.5),
+        borderRadius: BorderRadius.circular(12),
+        color: const Color(0xFFFAF5FF),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              "Environment Data",
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            Row(
+              children: [
+                const Icon(
+                  Icons.thermostat,
+                  color: Color(0xFF7C3AED),
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  "Environment Data",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF6B46C1),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            Text("Temperature: ${_formatNum(temp)} °C"),
-            Text("Pressure: ${_formatNum(pressure)} hPa"),
-            const SizedBox(height: 8),
-            Text("GPS valid: $gpsValid"),
-            if (lat != null && lon != null)
-              Text("Location: $lat, $lon (alt: ${alt ?? '-'} m)"),
+            const SizedBox(height: 12),
+            _buildDataRow("Temperature", "${j['temp']} °C"),
+            _buildDataRow("Pressure", "${j['pressure']} hPa"),
+            if (j['lat'] != null)
+              _buildDataRow(
+                "GPS",
+                "${j['lat']}, ${j['lon']} (alt: ${j['alt']})",
+              ),
           ],
         ),
       ),
     );
   }
+
+  // ===== SOS Card =====
 
   Widget _buildSosCard() {
-    final fromPhone = _lastJson!['from_phone'];
-    final fall = _lastJson!['fall'] ?? _lastJson!['fall_detected'];
-    final activity = _lastJson!['activity'];
-    final orient = _lastJson!['orient'] ?? _lastJson!['orientation'];
-    final heading = _lastJson!['heading'];
-    final accel = _lastJson!['accel_rms'];
-    final gyro = _lastJson!['gyro_rms'];
-    final phoneBatt = _lastJson!['phone_batt'] ?? _lastJson!['phone_battery'];
-
-    final lat = _lastJson!['lat'];
-    final lon = _lastJson!['lon'];
-    final alt = _lastJson!['alt'];
-    final temp = _lastJson!['temp'];
-    final pressure = _lastJson!['pressure'];
-
-    return Card(
-      color: Colors.red.withOpacity(0.08),
+    final j = _lastJson!;
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: const Color(0xFFFF6B6B), width: 2),
+        borderRadius: BorderRadius.circular(12),
+        color: const Color(0xFFFFF5F5),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              "🚨 SOS Event",
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            Row(
+              children: [
+                const Icon(Icons.emergency, color: Color(0xFFDC2626), size: 22),
+                const SizedBox(width: 8),
+                const Text(
+                  "🚨 SOS Detected",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFFDC2626),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            Text("From phone: $fromPhone"),
-            Text("Fall detected: $fall"),
-            Text("Activity: ${activity ?? '-'}"),
-            Text("Orientation: ${orient ?? '-'}"),
-            Text("Heading: ${heading ?? '-'}"),
-            Text("Accel RMS: ${_formatNum(accel)}"),
-            Text("Gyro RMS: ${_formatNum(gyro)}"),
-            Text("Phone battery: ${phoneBatt ?? '-'} %"),
-            const SizedBox(height: 8),
-            Text("Temperature: ${_formatNum(temp)} °C"),
-            Text("Pressure: ${_formatNum(pressure)} hPa"),
-            const SizedBox(height: 8),
-            if (lat != null && lon != null)
-              Text("Location: $lat, $lon (alt: ${alt ?? '-'} m)"),
+            const SizedBox(height: 12),
+            _buildDataRow(
+              "Fall Detected",
+              "${j['fall_detected']}",
+              isDanger: true,
+            ),
+            _buildDataRow("Activity", "${j['activity']}", isDanger: true),
+            _buildDataRow("Orientation", "${j['orientation']}", isDanger: true),
+            _buildDataRow("Heading", "${j['heading_deg']}°", isDanger: true),
           ],
         ),
       ),
     );
   }
+
+  // ===== ACK Card =====
 
   Widget _buildAckCard() {
     final status = _lastJson!['status'];
-
-    return Card(
-      color: Colors.green.withOpacity(0.12),
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: const Color(0xFF10B981), width: 2),
+        borderRadius: BorderRadius.circular(12),
+        color: const Color(0xFFF0FDF4),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(16),
         child: Row(
           children: [
-            const Icon(Icons.check_circle, color: Colors.greenAccent),
-            const SizedBox(width: 8),
-            Text("SOS ACK: $status"),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // NEW: when dongle says "PHONE_HAS_SIGNAL"
-  Widget _buildPhoneSignalCard() {
-    return Card(
-      color: Colors.blue.withOpacity(0.08),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: const [
-            Icon(Icons.signal_cellular_alt, color: Colors.blueAccent),
-            SizedBox(width: 8),
+            const Icon(Icons.check_circle, color: Color(0xFF059669), size: 24),
+            const SizedBox(width: 12),
             Expanded(
               child: Text(
-                "Phone has network. Use phone to call emergency services.",
-                style: TextStyle(fontSize: 14),
+                "ACK: $status",
+                style: const TextStyle(
+                  color: Color(0xFF065F46),
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
               ),
             ),
           ],
@@ -606,44 +996,78 @@ class _BluetoothHomePageState extends State<BluetoothHomePage> {
     );
   }
 
-  // NEW: show our own SIGNAL_STATUS reply (optional)
-  Widget _buildSignalStatusCard() {
-    final hasSignal = _lastJson!['has_signal'];
-    final netStatus = _lastJson!['net_status'];
-    final cellLevel = _lastJson!['cell_level'];
+  // ===== Signal Status Card =====
 
-    return Card(
+  Widget _buildSignalStatusCard() {
+    final j = _lastJson!;
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: const Color(0xFF7C3AED), width: 1.5),
+        borderRadius: BorderRadius.circular(12),
+        color: const Color(0xFFFAF5FF),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              "Signal Status (App → Dongle)",
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            Row(
+              children: [
+                const Icon(
+                  Icons.signal_cellular_alt,
+                  color: Color(0xFF7C3AED),
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  "Signal Status",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF6B46C1),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            Text("Has signal: $hasSignal"),
-            Text("Net status: $netStatus"),
-            Text("Cellular level: $cellLevel"),
+            const SizedBox(height: 12),
+            _buildDataRow("Has Signal", "${j['has_signal']}"),
+            _buildDataRow("Network Status", "${j['net_status']}"),
+            _buildDataRow("Cellular Level", "${j['cell_level']}"),
           ],
         ),
       ),
     );
   }
 
-  String _formatNum(dynamic v, [int digits = 2]) {
-    if (v == null) return '-';
-    if (v is num) {
-      if (v.isNaN || v.isInfinite) return '-';
-      try {
-        return v.toStringAsFixed(digits);
-      } catch (_) {
-        return v.toString();
-      }
-    }
-    return v.toString();
+  Widget _buildDataRow(String label, String value, {bool isDanger = false}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: isDanger
+                  ? const Color(0xFFDC2626)
+                  : const Color(0xFF9333EA),
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              color: isDanger
+                  ? const Color(0xFF991B1B)
+                  : const Color(0xFF6B46C1),
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              fontFamily: 'monospace',
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
-
-// ================ Device Picker Dialog ===================
