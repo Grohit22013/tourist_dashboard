@@ -5,6 +5,7 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   connectivity_plus
   flutter_tts
+  geolocator_windows
   objectbox_flutter_libs
   permission_handler_windows
   sqlite3_flutter_libs
