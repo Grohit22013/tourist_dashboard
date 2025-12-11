@@ -8,7 +8,6 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 Future<List> sensorList = NativeSensorService.getSensorList();
-
 List<ScanResult> nearbyDevices = [];
 BluetoothConnection? globalConnection;
 Future<void> makeCall(String number) async {
@@ -47,5 +46,8 @@ class Globals {
   static Future<int> getCellularDbm() => SignalService.getCellularDbm();
   static Future<int> getWifiDbm() => SignalService.getWifiDbm();
 }
+
+String lat = "0";
+String long = "0";
 
 final String dashboardendpoint = "http://172.20.10.8:8000/send-sos";

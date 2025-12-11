@@ -1,0 +1,651 @@
+// ================== YatraRaksha Dongle – BMP280 + 433 MHz ==================
+// ESP32 + LoRa (SX1276/78) + NEO-6M GPS + BMP280 + OLED + SOS Button
+//
+// Pins (your layout):
+// LoRa SCK   → GPIO 18
+// LoRa MISO  → GPIO 19
+// LoRa MOSI  → GPIO 23
+// LoRa CS    → GPIO 27
+// LoRa RESET → GPIO 12
+// LoRa DIO0  → GPIO 26
+//
+// OLED SDA   → GPIO 4
+// OLED SCL   → GPIO 15
+//
+// BMP280 SDA → GPIO 21
+// BMP280 SCL → GPIO 22
+//
+// SOS Button Signal → GPIO 25 (Button → 3.3V, use INPUT_PULLDOWN)
+//
+// GPS NEO-6M TX → GPIO 16 (ESP32 RX2, UART2)
+// GPS NEO-6M RX → (not used)
+//
+// If GPS has no fix or is not working, we FALL BACK to STATIC COORDINATES.
+//
+// ====================================================================
+
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BMP280.h>
+#include <TinyGPSPlus.h>
+#include <BluetoothSerial.h>
+#include <HardwareSerial.h>
+#include <LoRa.h>
+#include <ArduinoJson.h>
+#include <U8g2lib.h>
+
+// ---------------- PIN CONFIGURATION ----------------
+
+// LoRa (SX1276 / SX1278)
+#define LORA_SCK   18
+#define LORA_MISO  19
+#define LORA_MOSI  23
+#define LORA_CS    27
+#define LORA_RST   12
+#define LORA_DIO0  26
+
+// BMP280 – REAL pins (keep as in your current wiring)
+#define BMP_SDA    4
+#define BMP_SCL    15
+
+// OLED – REAL pins
+#define OLED_SDA   21
+#define OLED_SCL   22
+
+// GPS (using UART2, RX = 16, TX not used)
+#define GPS_RX_PIN 16   // GPS TX → GPIO 16 (RX2)
+#define GPS_TX_PIN -1   // not used
+HardwareSerial SerialGPS(2);  // UART2
+TinyGPSPlus gps;
+
+// SOS Button
+#define SOS_BUTTON_PIN 25   // Button → 3.3V; use INPUT_PULLDOWN
+#define SOS_REPEATS    3
+
+// LoRa frequency – you said 433 MHz
+#define LORA_FREQUENCY 433E6
+
+// =============================================================
+
+BluetoothSerial SerialBT;
+Adafruit_BMP280 bmp;
+bool bmp_ok = false;
+uint8_t bmp_addr = 0;
+
+// OLED over software I2C
+U8G2_SH1106_128X64_NONAME_F_SW_I2C oled(
+  U8G2_R0,
+  /* clock=*/ OLED_SCL,
+  /* data=*/  OLED_SDA,
+  /* reset=*/ U8X8_PIN_NONE
+);
+
+// Button debounce
+bool lastButtonState = LOW;  // idle = LOW (pulldown)
+unsigned long lastButtonTime = 0;
+const unsigned long debounceDelay = 50;
+
+// GPS memory
+struct GpsData {
+  bool valid;
+  double lat;
+  double lon;
+  double alt;
+  double speed;
+} lastGps = {false, 0, 0, 0, 0};
+
+// ---------- STATIC GPS FALLBACK (used if no fix) ----------
+const double STATIC_LAT   = 26.841717924593468;   // TODO: replace with your demo location
+const double STATIC_LON   = 75.56238859871787;
+const double STATIC_ALT   = 900.0;     // meters
+const double STATIC_SPEED = 0.0;
+
+// Forward declarations
+void handlePhoneCommand(const String &line);
+void readGpsStream();
+bool getCurrentGps(GpsData &out);
+void sendLoRaSOS(bool fromPhone,
+                 bool fall_detected,
+                 const String &activity,
+                 const String &orientation,
+                 float heading_deg,
+                 float accel_rms,
+                 float gyro_rms,
+                 int phone_battery);
+void sendMinimalButtonSOS();
+void updateOLED(const String &msg);
+bool phoneHasSignal(uint16_t timeoutMs = 2000);
+
+// NEW: LoRa downlink handler
+void handleLoRaDownlink(int packetSize);
+
+// =============================================================
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+  Serial.println("\n[YatraRaksha Dongle] Booting...");
+
+  // OLED init
+  oled.begin();
+  oled.clearBuffer();
+  oled.setFont(u8g2_font_ncenB08_tr);
+  oled.drawStr(0, 15, "YatraRaksha Booting...");
+  oled.sendBuffer();
+  delay(800);
+
+  // Button – wiring: Button → 3.3V, other leg → GPIO25
+  pinMode(SOS_BUTTON_PIN, INPUT_PULLDOWN);  // idle LOW, pressed HIGH
+
+  // I2C for BMP280
+  Wire.begin(BMP_SDA, BMP_SCL);
+
+  // BMP280 init
+  if (bmp.begin(0x76)) {
+    bmp_ok = true;
+    bmp_addr = 0x76;
+    Serial.println("[BMP280] OK @0x76");
+    updateOLED("BMP280: OK 0x76");
+  } else if (bmp.begin(0x77)) {
+    bmp_ok = true;
+    bmp_addr = 0x77;
+    Serial.println("[BMP280] OK @0x77");
+    updateOLED("BMP280: OK 0x77");
+  } else {
+    bmp_ok = false;
+    Serial.println("[BMP280] FAILED @0x76 & @0x77");
+    updateOLED("BMP280: FAIL");
+  }
+
+  // GPS on UART2, RX = 16
+  SerialGPS.begin(9600, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
+  Serial.println("[GPS] UART2 ready on RX=16");
+  updateOLED("GPS: Ready");
+
+  // Bluetooth
+  if (!SerialBT.begin("YatraRaksha_Dongle")) {
+    Serial.println("[BT] Bluetooth init failed!");
+    updateOLED("BT: FAIL");
+  } else {
+    Serial.println("[BT] Bluetooth ready");
+    updateOLED("BT: Ready");
+  }
+
+  // LoRa
+  SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_CS);
+  LoRa.setPins(LORA_CS, LORA_RST, LORA_DIO0);
+  if (!LoRa.begin(LORA_FREQUENCY)) {
+    Serial.println("[LoRa] init failed!");
+    updateOLED("LoRa: FAIL");
+  } else {
+    Serial.println("[LoRa] init OK @433 MHz");
+    updateOLED("LoRa: Ready");
+    LoRa.setSpreadingFactor(9);
+    LoRa.setSignalBandwidth(125E3);
+    LoRa.setCodingRate4(5);
+
+    // IMPORTANT: go to receive mode so we can get INS messages
+    LoRa.receive();
+  }
+
+  delay(500);
+  updateOLED("System Ready");
+}
+
+// =============================================================
+
+void loop() {
+  // Continuously parse GPS
+  readGpsStream();
+
+  // LoRa downlink from gateway (instructions etc.)
+  int packetSize = LoRa.parsePacket();
+  if (packetSize) {
+    handleLoRaDownlink(packetSize);
+  }
+
+  // Commands from App
+  if (SerialBT.available()) {
+    String line = SerialBT.readStringUntil('\n');
+    line.trim();
+    if (line.length() > 0) {
+      Serial.print("[BT] RX: ");
+      Serial.println(line);
+      handlePhoneCommand(line);
+    }
+  }
+
+  // Physical Button
+  bool buttonState = digitalRead(SOS_BUTTON_PIN);
+
+  // Basic debounce: detect edges
+  if (buttonState != lastButtonState) {
+    lastButtonTime = millis();
+    lastButtonState = buttonState;
+  }
+
+  if ((millis() - lastButtonTime) > debounceDelay) {
+    if (buttonState == HIGH) {  // pressed
+      Serial.println("[BUTTON] SOS pressed!");
+      updateOLED("SOS Button Pressed!");
+
+      // 🔍 Ask phone if it has signal
+      bool phone_ok = phoneHasSignal();  // boolean function
+
+      if (phone_ok) {
+        // ✅ Phone has signal → ignore LoRa SOS
+        Serial.println("[BUTTON] Phone has signal → no LoRa SOS");
+        updateOLED("Phone has network.");
+
+        if (SerialBT.hasClient()) {
+          StaticJsonDocument<128> msg;
+          msg["type"]   = "PHONE_HAS_SIGNAL";
+          msg["source"] = "dongle";
+          String out;
+          serializeJson(msg, out);
+          SerialBT.println(out);
+          Serial.print("[BT] TX: ");
+          Serial.println(out);
+        }
+
+      } else {
+        // ❗ No signal → use LoRa SOS
+        Serial.println("[BUTTON] No signal → sending LoRa SOS");
+        updateOLED("No network. LoRa SOS...");
+
+        // 1) Send minimal LoRa SOS
+        sendMinimalButtonSOS();
+
+        // 2) Notify app if connected
+        if (SerialBT.hasClient()) {
+          StaticJsonDocument<128> btnMsg;
+          btnMsg["type"]   = "SOS_BUTTON";
+          btnMsg["source"] = "dongle";
+          String out;
+          serializeJson(btnMsg, out);
+          SerialBT.println(out);
+          Serial.print("[BT] TX: ");
+          Serial.println(out);
+        }
+      }
+
+      // Small delay + simple “one-shot” feel
+      delay(400);
+    }
+  }
+
+  delay(20);
+}
+
+// =============================================================
+// NEW: Handle incoming LoRa packets (instructions from gateway)
+// =============================================================
+
+void handleLoRaDownlink(int packetSize) {
+  String incoming = "";
+  while (LoRa.available()) {
+    char c = (char)LoRa.read();
+    incoming += c;
+  }
+
+  int rssi = LoRa.packetRssi();
+  float snr = LoRa.packetSnr();
+
+  Serial.println("------------------------------------------------");
+  Serial.print("[LoRa RX] Packet (");
+  Serial.print(packetSize);
+  Serial.println(" bytes):");
+  Serial.println(incoming);
+  Serial.print("[LoRa RX] RSSI: ");
+  Serial.print(rssi);
+  Serial.print(" dBm, SNR: ");
+  Serial.println(snr);
+
+  StaticJsonDocument<512> doc;
+  DeserializationError err = deserializeJson(doc, incoming);
+  if (err) {
+    Serial.print("[LoRa RX] JSON parse error: ");
+    Serial.println(err.c_str());
+    return;
+  }
+
+  const char* type = doc["type"] | "";
+  if (strcmp(type, "INS") == 0) {
+    const char* msg = doc["msg"] | "";
+    Serial.print("[INS] Instruction received: ");
+    Serial.println(msg);
+
+    // Show message on OLED
+    String displayMsg = String("INS: ") + msg;
+    updateOLED(displayMsg);
+  } else {
+    Serial.print("[LoRa RX] Unknown type: ");
+    Serial.println(type);
+  }
+}
+
+// =============================================================
+// NEW: Phone signal check (boolean function)
+// =============================================================
+//
+// 1) If no BT client → assume NO signal → return false
+// 2) Send {"cmd":"CHECK_SIGNAL"} to the app
+// 3) Wait up to timeoutMs for a line-terminated JSON:
+//      {"type":"SIGNAL_STATUS","has_signal": true/false}
+// 4) If received and valid → return has_signal
+// 5) If timeout / parse error → return false
+// =============================================================
+
+bool phoneHasSignal(uint16_t timeoutMs) {
+  if (!SerialBT.hasClient()) {
+    Serial.println("[BT] No client, assume NO signal");
+    return false;
+  }
+
+  // Send ping
+  StaticJsonDocument<128> ping;
+  ping["cmd"] = "CHECK_SIGNAL";
+  String out;
+  serializeJson(ping, out);
+  SerialBT.println(out);
+  Serial.print("[BT] TX ping: ");
+  Serial.println(out);
+
+  // Wait for reply
+  unsigned long start = millis();
+  String line = "";
+
+  while (millis() - start < timeoutMs) {
+    while (SerialBT.available()) {
+      char c = (char)SerialBT.read();
+      if (c == '\n') {
+        line.trim();
+        if (line.length() > 0) {
+          Serial.print("[BT] RX (ping resp): ");
+          Serial.println(line);
+
+          StaticJsonDocument<256> resp;
+          DeserializationError err = deserializeJson(resp, line);
+          if (!err) {
+            const char *type = resp["type"] | "";
+            if (strcmp(type, "SIGNAL_STATUS") == 0) {
+              bool hasSignal = resp["has_signal"] | false;
+              Serial.print("[BT] has_signal = ");
+              Serial.println(hasSignal ? "true" : "false");
+              return hasSignal;
+            }
+          } else {
+            Serial.print("[JSON] Parse err on ping resp: ");
+            Serial.println(err.c_str());
+          }
+        }
+        line = "";  // reset for next line
+      } else {
+        line += c;
+      }
+    }
+    delay(5); // small yield
+  }
+
+  Serial.println("[BT] No SIGNAL_STATUS response, assume NO signal");
+  return false;
+}
+
+// =============================================================
+// GPS handling
+// =============================================================
+
+void readGpsStream() {
+  while (SerialGPS.available()) {
+    char c = SerialGPS.read();
+    gps.encode(c);
+    if (gps.location.isValid()) {
+      lastGps.valid = true;
+      lastGps.lat   = gps.location.lat();
+      lastGps.lon   = gps.location.lng();
+      lastGps.alt   = gps.altitude.isValid() ? gps.altitude.meters() : 0;
+      lastGps.speed = gps.speed.isValid() ? gps.speed.mps() : 0;
+    }
+  }
+}
+
+// If GPS is not valid, we return STATIC coordinates instead.
+bool getCurrentGps(GpsData &out) {
+  if (gps.location.isValid()) {
+    out.valid = true;
+    out.lat   = gps.location.lat();
+    out.lon   = gps.location.lng();
+    out.alt   = gps.altitude.isValid() ? gps.altitude.meters() : 0;
+    out.speed = gps.speed.isValid() ? gps.speed.mps() : 0;
+    lastGps   = out;
+    return true;
+  }
+
+  if (lastGps.valid) {
+    out = lastGps;
+    return true;
+  }
+
+  // ---- STATIC FALLBACK HERE ----
+  out.valid = true;
+  out.lat   = STATIC_LAT;
+  out.lon   = STATIC_LON;
+  out.alt   = STATIC_ALT;
+  out.speed = STATIC_SPEED;
+  lastGps   = out;
+  return true;
+}
+
+// =============================================================
+// App command handling (Bluetooth JSON)
+// =============================================================
+
+void handlePhoneCommand(const String &line) {
+  StaticJsonDocument<512> doc;
+  if (deserializeJson(doc, line)) {
+    Serial.println("[JSON] Parse error");
+    return;
+  }
+
+  const char *cmd = doc["cmd"] | "";
+
+  // --- GET_ENV / GET_ENV_GPS ---
+  if (strcmp(cmd, "GET_ENV") == 0 || strcmp(cmd, "GET_ENV_GPS") == 0) {
+    float t = bmp_ok ? bmp.readTemperature()       : NAN;
+    float p = bmp_ok ? bmp.readPressure() / 100.0F : NAN;
+
+    StaticJsonDocument<256> env;
+    env["type"]     = "ENV";
+    env["temp"]     = t;
+    env["pressure"] = p;
+
+    bool includeGPS = (strcmp(cmd, "GET_ENV_GPS") == 0);
+    if (includeGPS) {
+      GpsData g;
+      bool gps_ok = getCurrentGps(g);  // this will always give something (real or static)
+      env["gps_valid"] = gps_ok;
+      if (gps_ok) {
+        env["lat"] = g.lat;
+        env["lon"] = g.lon;
+        env["alt"] = g.alt;
+      }
+    } else {
+      env["gps_valid"] = gps.location.isValid() || lastGps.valid;
+    }
+
+    String out;
+    serializeJson(env, out);
+    SerialBT.println(out);
+    Serial.print("[BT] ENV TX: ");
+    Serial.println(out);
+    updateOLED("ENV Sent");
+    return;
+  }
+
+  // --- SOS (no network) ---
+  if (strcmp(cmd, "SOS") == 0) {
+    bool  fall_detected  = doc["fall_detected"] | false;
+    const char *activity = doc["activity"]      | "unknown";
+    const char *orient   = doc["orientation"]   | "unknown";
+    float heading_deg    = doc["heading_deg"]   | -1.0;
+    float accel_rms      = doc["accel_rms"]     | 0.0;
+    float gyro_rms       = doc["gyro_rms"]      | 0.0;
+    int   phone_battery  = doc["phone_battery"] | -1;
+
+    Serial.println("[CMD] SOS from app -> LoRa path");
+    updateOLED("LoRa SOS...");
+
+    sendLoRaSOS(true, fall_detected, activity, orient,
+                heading_deg, accel_rms, gyro_rms, phone_battery);
+
+    StaticJsonDocument<128> ack;
+    ack["type"]   = "ACK_SOS";
+    ack["status"] = "queued";
+    String out;
+    serializeJson(ack, out);
+    SerialBT.println(out);
+    Serial.print("[BT] ACK_SOS TX: ");
+    Serial.println(out);
+    updateOLED("SOS Sent");
+    return;
+  }
+
+  Serial.println("[CMD] Unknown cmd from app");
+}
+
+// =============================================================
+// LoRa SOS – app-driven (no network)
+// =============================================================
+
+// =============================================================
+// LoRa SOS – app-driven (no network) – compact but FULL FEATURE
+// =============================================================
+
+void sendLoRaSOS(bool fromPhone,
+                 bool fall_detected,
+                 const String &activity,
+                 const String &orientation,
+                 float heading_deg,
+                 float accel_rms,
+                 float gyro_rms,
+                 int phone_battery) {
+  float t = bmp_ok ? bmp.readTemperature()       : NAN;
+  float p = bmp_ok ? bmp.readPressure() / 100.0F : NAN;
+
+  GpsData g;
+  bool gps_ok = getCurrentGps(g);  // always returns something (real or static)
+
+  StaticJsonDocument<512> doc;
+  doc["type"]        = "SOS";
+  doc["device_id"]   = "NODE_01";
+  doc["from_phone"]  = fromPhone;
+
+  // --- GPS: keep ALL fields, but shorten lat/lon decimals ---
+  if (gps_ok) {
+    // Limit to 4 decimal places to reduce payload size
+    String latStr = String(g.lat, 4);   // e.g. "26.8417"
+    String lonStr = String(g.lon, 4);   // e.g. "75.5624"
+    doc["lat"]   = latStr;              // still lat, not dropped
+    doc["lon"]   = lonStr;              // still lon
+    doc["alt"]   = g.alt;               // KEEP alt
+    doc["speed"] = g.speed;             // KEEP speed
+  }
+
+  // --- Fall / motion features (KEEP all) ---
+  doc["fall"]       = fall_detected;
+  doc["activity"]   = activity;
+  doc["orient"]     = orientation;
+  doc["heading"]    = heading_deg;
+  doc["accel_rms"]  = accel_rms;
+  doc["gyro_rms"]   = gyro_rms;         // KEEP gyro_rms
+  doc["phone_batt"] = phone_battery;    // KEEP phone_batt
+
+  // --- Environment: keep temp & pressure, limit precision ---
+  if (!isnan(t)) {
+    String tempStr = String(t, 2);      // e.g. "25.86"
+    doc["temp"] = tempStr;             // KEEP temp
+  }
+  if (!isnan(p)) {
+    String presStr = String(p, 2);      // e.g. "975.41"
+    doc["pressure"] = presStr;         // KEEP pressure
+  }
+
+  doc["hop"]        = 0;
+  doc["ts"]         = millis();
+
+  String payload;
+  serializeJson(doc, payload);
+
+  Serial.print("[LoRa] SOS payload: ");
+  Serial.println(payload);
+  Serial.print("[LoRa] SOS length: ");
+  Serial.println(payload.length());   // should be < 255
+
+  for (int i = 0; i < SOS_REPEATS; i++) {
+    LoRa.beginPacket();
+    LoRa.print(payload);
+    LoRa.endPacket();
+    delay(100);
+  }
+
+  // Go back to RX mode instead of sleeping
+  LoRa.receive();
+  updateOLED("LoRa SOS Sent");
+}
+
+
+// =============================================================
+// Minimal SOS – physical button
+// =============================================================
+
+void sendMinimalButtonSOS() {
+  float t = bmp_ok ? bmp.readTemperature()       : NAN;
+  float p = bmp_ok ? bmp.readPressure() / 100.0F : NAN;
+
+  GpsData g;
+  bool gps_ok = getCurrentGps(g);  // static fallback if needed
+
+  StaticJsonDocument<256> doc;
+  doc["type"]       = "SOS_BUTTON";
+  doc["device_id"]  = "NODE_01";
+  doc["from_phone"] = false;
+  doc["temp"]       = t;
+  doc["pressure"]   = p;
+  doc["hop"]        = 0;
+  doc["ts"]         = millis();
+
+  if (gps_ok) {
+    doc["lat"] = g.lat;
+    doc["lon"] = g.lon;
+    doc["alt"] = g.alt;
+  }
+
+  String payload;
+  serializeJson(doc, payload);
+
+  Serial.print("[LoRa] Button SOS payload: ");
+  Serial.println(payload);
+
+  for (int i = 0; i < SOS_REPEATS; i++) {
+    LoRa.beginPacket();
+    LoRa.print(payload);
+    LoRa.endPacket();
+    delay(80);
+  }
+
+  // Go back to RX mode instead of sleeping
+  LoRa.receive();
+  updateOLED("Button SOS Sent");
+}
+
+// =============================================================
+// OLED Helper
+// =============================================================
+
+void updateOLED(const String &msg) {
+  oled.clearBuffer();
+  oled.setFont(u8g2_font_ncenB08_tr);
+  oled.drawStr(0, 15, "YatraRaksha");
+  oled.drawStr(0, 35, msg.c_str());
+  oled.sendBuffer();
+}
