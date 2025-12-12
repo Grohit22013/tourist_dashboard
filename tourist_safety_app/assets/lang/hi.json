@@ -1,0 +1,16 @@
+{
+  "welcome": "पर्यटक सुरक्षा ऐप में आपका स्वागत है",
+  "panic": "आपातकाल",
+  "refresh": "स्थिति ताज़ा करें",
+  "complete_kyc": "KYC पूरा करें",
+  "no_did": "डिजिटल आईडी नहीं बनी। KYC पूरा करें।",
+  "safety_score": "सुरक्षा स्कोर",
+  "score_safe": "सुरक्षित",
+  "score_moderate": "मध्यम",
+  "score_highrisk": "उच्च जोखिम",
+  "follow": "मेरी स्थिति पर फॉलो करें",
+  "stop_follow": "फॉलो बंद करें",
+  "simulate": "सिमुलेट ज़ोन प्रवेश (डिबग)",
+  "send_sos": "SOS भेजें",
+  "location_unavailable": "GPS स्थान प्राप्त नहीं हो पाया"
+}
