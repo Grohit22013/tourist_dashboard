@@ -1,0 +1,49 @@
+// android/app/build.gradle (module-level)
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+android {
+    namespace = "com.example.tourist_safety_app"
+    compileSdkVersion 35
+    ndkVersion = "25.1.8937393"
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+
+        // ENABLE core library desugaring required by some plugins (flutter_local_notifications)
+        coreLibraryDesugaringEnabled true
+    }
+
+    kotlinOptions {
+        // jvmTarget must be a string
+        jvmTarget = "1.8"
+    }
+
+    defaultConfig {
+        applicationId = "com.example.tourist_safety_app"
+        minSdk = flutter.minSdkVersion  // typically 21
+        targetSdk = 35
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+    }
+
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.debug
+        }
+    }
+}
+
+dependencies {
+    // Keep your existing dependencies here (implementation project(':some-lib') etc.)
+    // Add core library desugaring artifact
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
+}
+
+flutter {
+    source = "../.."
+}

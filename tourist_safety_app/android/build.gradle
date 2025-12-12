@@ -1,0 +1,45 @@
+// android/build.gradle (root-level)
+buildscript {
+    ext.kotlin_version = "1.9.24"
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        // Android Gradle Plugin compatible with Gradle 8.x
+        classpath "com.android.tools.build:gradle:8.3.2"
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        // Helpful fallback for some artifacts
+        maven { url 'https://jitpack.io' }
+
+        // If you have a local background_fetch plugin project that bundles an AAR,
+        // the following references it. Ensure ':background_fetch' is included in settings.gradle.
+        // Comment this block out if you do not have a local background_fetch module.
+        try {
+            maven {
+                url "${project(':background_fetch').projectDir}/libs"
+            }
+        } catch (e) {
+            // ignore if background_fetch not present
+        }
+    }
+}
+
+rootProject.buildDir = "../build"
+subprojects {
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+}
+subprojects {
+    project.evaluationDependsOn(":app")
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}

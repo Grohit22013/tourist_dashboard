@@ -1,0 +1,22 @@
+fastapi
+uvicorn
+web3==6.11.3
+
+pydantic
+fastapi
+uvicorn[standard]
+SQLAlchemy>=1.4
+
+alembic
+python-dotenv
+cryptography 
+requests
+
+# run in your backend app dir (or Dockerfile)
+cryptography 
+sqlalchemy 
+requests 
+fastapi 
+uvicorn 
+python-multipart
+base58

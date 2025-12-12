@@ -1,0 +1,16 @@
+{
+  "welcome": "Welcome to Tourist Safety App",
+  "panic": "Panic",
+  "refresh": "Refresh status",
+  "complete_kyc": "Complete KYC",
+  "no_did": "No Digital ID yet. Complete KYC to get one.",
+  "safety_score": "Safety Score",
+  "score_safe": "Safe",
+  "score_moderate": "Moderate",
+  "score_highrisk": "High risk",
+  "follow": "Follow my location",
+  "stop_follow": "Stop following",
+  "simulate": "Simulate Enter (debug)",
+  "send_sos": "Send SOS",
+  "location_unavailable": "Could not fetch GPS location"
+}

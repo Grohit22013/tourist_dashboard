@@ -1,0 +1,46 @@
+name: tourist_safety_app
+description: Day-1 starter for Smart Tourist Safety App (registration + digital ID storage)
+publish_to: "none"
+
+environment:
+  sdk: ">=3.2.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  easy_localization: ^3.0.5
+  cupertino_icons: ^1.0.6
+  http: ^1.2.2
+  flutter_secure_storage: ^9.0.0
+  flutter_dotenv: ^5.1.0
+  intl: 0.20.2
+  dio: ^5.9.0
+  location: ^7.0.1
+  geolocator: ^13.0.4
+  background_fetch: ^1.3.7
+  geolocator_android: 4.6.1
+  flutter_local_notifications: ^19.4.1
+  google_maps_flutter: ^2.4.0
+
+
+
+
+
+
+
+
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/.env
+    - assets/lang/translations/
+
+    

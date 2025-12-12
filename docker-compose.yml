@@ -1,0 +1,67 @@
+version: "3.8"
+
+services:
+  ganache:
+    image: trufflesuite/ganache-cli:latest
+    command: ["--deterministic", "--host", "0.0.0.0", "--port", "8545"]
+    ports:
+      - "8545:8545"
+    networks:
+      - app_net
+
+  ipfs:
+    image: ipfs/kubo:latest
+    ports:
+      - "5001:5001"
+      - "8080:8080"
+    volumes:
+      - ipfs_staging:/export
+      - ipfs_data:/data/ipfs
+    networks:
+      - app_net
+
+  backend:
+    build:
+      context: ./backend
+    image: sih-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      # 1) Mount compiled contract artifacts (Truffle build) into the container
+      - ./backend/app/build/contracts:/app/app/build/contracts:ro
+      # 2) Persist sqlite DB to host folder so data survives restarts
+      - ./backend/tourists.db:/app/tourists.db
+      # 3) Mount server public key (must exist on host at ./backend/keys/server_public.pem)
+      - ./backend/keys/server_public.pem:/run/secrets/server_public.pem:ro
+    env_file:
+      - .env
+    environment:
+      # path inside container where blockchain_service will find artifact
+      CONTRACT_ABI_PATH: /app/app/build/contracts/TouristRegistry.json
+
+      # backend runtime endpoints (compose hostnames)
+      GANACHE_URL: http://ganache:8545
+      IPFS_API_URL: http://ipfs:5001/api/v0
+
+      # local persistent sqlite file inside container
+      TOURIST_DATABASE_URL: sqlite://///app/tourists.db
+
+      # Use the mounted public key path for wrapping symmetric keys
+      SERVER_PUBLIC_KEY_PATH: /run/secrets/server_public.pem
+
+      # (optional) You should set TOURIST_REGISTRY_ADDRESS in .env to your deployed contract address
+      # PRIVATE_KEY: ${PRIVATE_KEY}                # optional: private key if backend should sign txs
+      # CONTRACT_ABI_JSON: ${CONTRACT_ABI_JSON}   # alternative: inline ABI JSON in env (not recommended)
+    depends_on:
+      - ganache
+      - ipfs
+    networks:
+      - app_net
+
+networks:
+  app_net:
+    driver: bridge
+
+volumes:
+  ipfs_staging:
+  ipfs_data:
