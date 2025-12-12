@@ -65,11 +65,6 @@ Future<void> speakMessage() async {
   await tts.speak(globalInstruction);
 }
 
-// Future<void> makeCall(String number) async {
-//   final Uri callUri = Uri(scheme: 'tel', path: number);
-//   await launchUrl(callUri);
-// }
-
 class Globals {
   static Future<int> getCellularLevel() => SignalService.getCellularLevel();
   static Future<int> getWifiLevel() => SignalService.getWifiLevel();

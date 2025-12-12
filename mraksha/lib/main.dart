@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:mraksha/background/service_initializer.dart';
 import 'package:mraksha/components/bluetoothconnect.dart';
 import 'package:mraksha/components/mappage.dart';
 import 'package:mraksha/components/sensorpage.dart';
@@ -11,7 +10,7 @@ Future<void> main() async {
   // runApp(const YatraRakshaApp());
   WidgetsFlutterBinding.ensureInitialized();
   await DeviceStatusService.instance.initialize();
-  await initializeService();
+  // await initializeService();
   // await FMTC.instance('mapStore').manage.create();
   runApp(YatraRakshaApp());
 }

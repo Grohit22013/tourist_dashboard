@@ -6,9 +6,9 @@ import 'package:flutter_background_service_android/flutter_background_service_an
 import 'package:flutter_bluetooth_serial_plus/flutter_bluetooth_serial_plus.dart';
 import 'package:http/http.dart' as http;
 
-import '../globals.dart';
-import '../services/network_service.dart';
-import '../services/signal_services.dart';
+import '../../mraksha/lib/globals.dart';
+import '../../mraksha/lib/services/network_service.dart';
+import '../../mraksha/lib/services/signal_services.dart';
 
 BluetoothConnection? globalConnection;
 

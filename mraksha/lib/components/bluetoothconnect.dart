@@ -123,6 +123,8 @@ class _BluetoothHomePageState extends State<BluetoothHomePage> {
   }
 
   Future<void> _handleJsonFromDevice(Map<String, dynamic> jsonMap) async {
+    print("\nwelcome\n");
+    print(jsonMap);
     final cmd = jsonMap["cmd"];
     if (cmd == "MSG") {
       String trans = await translateToGlobalLanguage(jsonMap["message"]);
@@ -130,9 +132,7 @@ class _BluetoothHomePageState extends State<BluetoothHomePage> {
 
       print("\ninstruction\n");
       print(globalInstruction);
-    }
-
-    if (cmd == "SOS") {
+    } else if (cmd == "SOS") {
       _sendCommand(jsonMap);
     } else if (cmd == "CHECK_SIGNAL") {
       print("\ncheck signal call from bluetooth device\n");
@@ -163,6 +163,7 @@ class _BluetoothHomePageState extends State<BluetoothHomePage> {
         print("\nhas signal, summmmmmmmma\n");
         Position? position = await GPSService.getCurrentLocation();
         _sendCommand({
+          "name": "Tourist 0101",
           "gateway_id": "GATEWAY_01",
           "cmd": "SOS",
           "type": "SOS",
@@ -198,21 +199,55 @@ class _BluetoothHomePageState extends State<BluetoothHomePage> {
     }
   }
 
+  // Future<void> _replySignalStatus() async {
+  //   try {
+  //     final net = await NetworkService.checkStatusOnce();
+  //     final netStatus = net["status"]?.toString() ?? "0";
+  //     final cellLevel = await SignalService.getCellularLevel();
+
+  //     // Phone considers we have usable signal if:
+  //     // - true internet (netStatus == "1")
+  //     // - OR some cellular level
+  //     final hasSignal = netStatus == "1" || cellLevel != 0;
+
+  //     final reply = {
+  //       "type": "SIGNAL_STATUS",
+  //       "has_signal": hasSignal,
+  //       "net_status": netStatus,
+  //       "cell_level": cellLevel,
+  //     };
+
+  //     // Only send if BT connected
+  //     if (BluetoothManager.instance.isConnected) {
+  //       BluetoothManager.instance.sendJson(reply);
+  //     }
+
+  //     setState(() {
+  //       _status = "Replied SIGNAL_STATUS";
+  //       _lastJson = reply;
+  //       _lastRawLine = json.encode(reply);
+  //     });
+  //   } catch (e) {
+  //     setState(() {
+  //       _status = "Error replying signal status: $e";
+  //     });
+  //   }
+  // }
   // ================= SEND COMMAND =====================
 
   Future<void> _sendCommand(Map<String, dynamic> cmd) async {
     try {
       if (cmd['cmd'] == "SOS") {
-        Position? position = await GPSService.getCurrentLocation();
-        cmd["lat"] = position?.latitude.toString();
-        cmd["lon"] = position?.longitude.toString();
-        cmd["alt"] = position?.altitude.toString();
-        cmd["speed"] = position?.speed.toString();
         final net = await NetworkService.checkStatusOnce();
-
+        final level = await SignalService.getCellularLevel();
         print("\nNetwork check: $net\n");
 
         if (net["status"] == "1") {
+          Position? position = await GPSService.getCurrentLocation();
+          cmd["lat"] = position?.latitude.toString();
+          cmd["lon"] = position?.longitude.toString();
+          cmd["alt"] = position?.altitude.toString();
+          cmd["speed"] = position?.speed.toString();
           // Cloud
           final res = await http.post(
             Uri.parse(dashboardendpoint),
@@ -223,19 +258,15 @@ class _BluetoothHomePageState extends State<BluetoothHomePage> {
           print("HTTP Response: ${res.body}");
           setState(() => _status = "Sent via Internet");
           return;
-        }
-
-        final level = await SignalService.getCellularLevel();
-
-        if (level != 0) {
+        } else if (level > 0) {
           print("signal is available, send via cell signal");
+
           setState(() => _status = "Sent via BT (cell signal)");
           return;
+        } else {
+          BluetoothManager.instance.sendJson(cmd);
+          setState(() => _status = "No internet or signal");
         }
-
-        BluetoothManager.instance.sendJson(cmd);
-
-        setState(() => _status = "No internet or signal");
       } else {
         BluetoothManager.instance.sendJson(cmd);
       }
@@ -372,6 +403,7 @@ class _BluetoothHomePageState extends State<BluetoothHomePage> {
                       label: "Send SOS (demo)",
 
                       onPressed: () => _sendCommand({
+                        "name": "Tourist 1010",
                         "gateway_id": "GATEWAY_01",
                         "cmd": "SOS",
                         "type": "SOS",
